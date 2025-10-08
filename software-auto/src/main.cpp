@@ -1,88 +1,107 @@
 #include <Arduino.h>
+#include <config.h>
+#include <motor.h>
+#include <comm.h>
+#include <vector>
 
-// Definir pines para el control del motor
-#define MOTOR_PWM_PIN 23 // Pin PWM para controlar velocidad
-#define MOTOR_IN1_PIN 22 // Pin de dirección 1
-#define MOTOR_IN2_PIN 1  // Pin de dirección 2
+// Protocolo y parser (idéntico al que ya tenías; usa API pública del módulo motor)
+void processLine(String line) {
+    line.trim();
+    if (line.length() == 0) return;
 
-void setup()
-{
-    // Inicializar comunicación serie para debug
-    Serial.begin(115200);
-    Serial.println("Iniciando control de motor L298N");
+    if (line.equalsIgnoreCase("STOP")) {
+        stopAll();
+        Serial.println("ACK STOP");
+        return;
+    }
+    if (line.equalsIgnoreCase("PING")) {
+        Serial.println("PONG");
+        return;
+    }
 
-    // Configurar pines como salida
-    pinMode(MOTOR_PWM_PIN, OUTPUT);
-    pinMode(MOTOR_IN1_PIN, OUTPUT);
-    pinMode(MOTOR_IN2_PIN, OUTPUT);
+    // Tokenizar
+    std::vector<String> parts;
+    int idx = 0;
+    while (true) {
+        int sp = line.indexOf(' ', idx);
+        if (sp == -1) {
+            parts.push_back(line.substring(idx));
+            break;
+        }
+        parts.push_back(line.substring(idx, sp));
+        idx = sp + 1;
+    }
 
-    // Inicializar motor parado
-    digitalWrite(MOTOR_IN1_PIN, LOW);
-    digitalWrite(MOTOR_IN2_PIN, LOW);
-    analogWrite(MOTOR_PWM_PIN, 0);
+    if (parts.size() == 3 && parts[0].equalsIgnoreCase("ALL")) {
+        bool fwd = (parts[1].equalsIgnoreCase("F"));
+        int spd = parts[2].toInt();
+        spd = constrain(spd, 0, 255);
+        setMotorTarget(1, spd, fwd);
+        setMotorTarget(2, spd, fwd);
+        Serial.printf("ACK ALL %s %d\n", fwd ? "F" : "R", spd);
+        return;
+    }
+    if (parts.size() == 4 && parts[0].equalsIgnoreCase("MOTOR")) {
+        int m = parts[1].toInt();
+        bool fwd = (parts[2].equalsIgnoreCase("F"));
+        int spd = parts[3].toInt();
+        spd = constrain(spd, 0, 255);
+        if (m == 1 || m == 2) {
+            setMotorTarget(m, spd, fwd);
+            Serial.printf("ACK MOTOR %d %s %d\n", m, fwd ? "F" : "R", spd);
+        } else {
+            Serial.println("ERR MOTOR numero invalido");
+        }
+        return;
+    }
 
-    delay(2000); // Esperar 2 segundos antes de empezar
+    Serial.println("ERR comando desconocido");
 }
 
-void loop()
-{
-    // Motor hacia adelante - acelerar gradualmente
-    Serial.println("Motor hacia adelante - acelerando...");
-    digitalWrite(MOTOR_IN1_PIN, HIGH);
-    digitalWrite(MOTOR_IN2_PIN, LOW);
+// Buffer para entrada por Serial
+static String inputBuffer = "";
 
-    for (int velocidad = 0; velocidad <= 255; velocidad += 5)
-    {
-        analogWrite(MOTOR_PWM_PIN, velocidad);
-        Serial.print("Velocidad: ");
-        Serial.println(velocidad);
-        delay(100);
-    }
+void setup() {
+    Serial.begin(SERIAL_BAUD);
+    while (!Serial && millis() < 2000) ; // tiempo para abrir monitor serie
+    Serial.println("Iniciando: software-auto");
 
-    delay(1000); // Mantener velocidad máxima por 1 segundo
 
-    // Desacelerar gradualmente
-    Serial.println("Desacelerando...");
-    for (int velocidad = 255; velocidad >= 0; velocidad -= 5)
-    {
-        analogWrite(MOTOR_PWM_PIN, velocidad);
-        Serial.print("Velocidad: ");
-        Serial.println(velocidad);
-        delay(100);
-    }
+    motorInit();
+    commNetBegin(WIFI_SSID, WIFI_PASS, SERVER_IP, SERVER_PORT);
+}
 
-    delay(1000); // Pausa
+void loop() {
+    // --- manejo Serial (eco / backspace) ---
+    // while (Serial.available()) {
+    //     char c = Serial.read();
+    //     if (c == '\r') continue;
+    //     if (c == '\n') {
+    //         Serial.println();
+    //         processLine(inputBuffer);
+    //         inputBuffer = "";
+    //         continue;
+    //     }
+    //     if (c == 8 || c == 127) { // BS / DEL
+    //         if (inputBuffer.length() > 0) {
+    //             inputBuffer.remove(inputBuffer.length() - 1, 1);
+    //             Serial.print("\b \b");
+    //         }
+    //         continue;
+    //     }
+    //     if (c >= 32 && c <= 126) {
+    //         inputBuffer += c;
+    //         Serial.print(c);
+    //         if (inputBuffer.length() > NETBUF_MAXLEN) inputBuffer = inputBuffer.substring(inputBuffer.length() - NETBUF_MAXLEN);
+    //     }
+    // }
 
-    // Motor hacia atrás - acelerar gradualmente
-    Serial.println("Motor hacia atrás - acelerando...");
-    digitalWrite(MOTOR_IN1_PIN, LOW);
-    digitalWrite(MOTOR_IN2_PIN, HIGH);
+    // --- manejo red ---
+    commNetLoop();
 
-    for (int velocidad = 0; velocidad <= 255; velocidad += 5)
-    {
-        analogWrite(MOTOR_PWM_PIN, velocidad);
-        Serial.print("Velocidad reversa: ");
-        Serial.println(velocidad);
-        delay(100);
-    }
+    // --- avance rampa motores (no bloqueante; el módulo gestiona temporización interna) ---
+    updateMotor();
 
-    delay(1000); // Mantener velocidad máxima por 1 segundo
-
-    // Desacelerar gradualmente
-    Serial.println("Desacelerando reversa...");
-    for (int velocidad = 255; velocidad >= 0; velocidad -= 5)
-    {
-        analogWrite(MOTOR_PWM_PIN, velocidad);
-        Serial.print("Velocidad reversa: ");
-        Serial.println(velocidad);
-        delay(100);
-    }
-
-    // Motor parado
-    digitalWrite(MOTOR_IN1_PIN, LOW);
-    digitalWrite(MOTOR_IN2_PIN, LOW);
-    analogWrite(MOTOR_PWM_PIN, 0);
-
-    delay(2000); // Pausa de 2 segundos antes de repetir el ciclo
-    Serial.println("Ciclo completado - reiniciando...\n");
+    // pequeña pausa cooperativa
+    delay(5);
 }
