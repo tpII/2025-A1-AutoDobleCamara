@@ -4,7 +4,6 @@
 #include <math.h>
 
 // Pines (centralizados para evitar duplicados)
-// Asignación solicitada por el usuario
 // Motor A
 #define MOTOR1_PWM_PIN 15
 #define MOTOR1_IN1_PIN 2
