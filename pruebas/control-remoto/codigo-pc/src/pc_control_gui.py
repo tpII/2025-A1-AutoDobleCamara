@@ -22,6 +22,7 @@ except Exception:
     ImageTk = None
 
 import io
+
 try:
     import requests
 except Exception:
@@ -50,18 +51,39 @@ class PCControlGUI(tk.Tk):
         # Canvas for stream
         self.canvas = tk.Label(self)
         self.canvas.pack(expand=True)
-
         # Control buttons
         frm = ttk.Frame(self)
         frm.pack(pady=6)
-        ttk.Button(frm, text="Forward", command=lambda: self.send_cmd("ALL F 150\n")).grid(row=0, column=1)
-        ttk.Button(frm, text="Left", command=lambda: self.send_cmd("MOTOR 1 R 150\n;MOTOR 2 F 150\n")).grid(row=1, column=0)
-        ttk.Button(frm, text="Stop", command=lambda: self.send_cmd("STOP\n")).grid(row=1, column=1)
-        ttk.Button(frm, text="Right", command=lambda: self.send_cmd("MOTOR 1 F 150\n;MOTOR 2 R 150\n")).grid(row=1, column=2)
-        ttk.Button(frm, text="Backward", command=lambda: self.send_cmd("ALL R 150\n")).grid(row=2, column=1)
+        ttk.Button(
+            frm, text="Forward", command=lambda: self.send_cmd("ALL F 150\n")
+        ).grid(row=0, column=1)
+        ttk.Button(
+            frm,
+            text="Left",
+            command=lambda: self.send_cmd("MOTOR 1 R 150\n;MOTOR 2 F 150\n"),
+        ).grid(row=1, column=0)
+        ttk.Button(frm, text="Stop", command=lambda: self.send_cmd("STOP\n")).grid(
+            row=1, column=1
+        )
+        ttk.Button(
+            frm,
+            text="Right",
+            command=lambda: self.send_cmd("MOTOR 1 F 150\n;MOTOR 2 R 150\n"),
+        ).grid(row=1, column=2)
+        ttk.Button(
+            frm, text="Backward", command=lambda: self.send_cmd("ALL R 150\n")
+        ).grid(row=2, column=1)
+
+        # retry button
+        self.retry_btn = ttk.Button(
+            frm, text="Reintentar stream", command=self.retry_stream
+        )
+        self.retry_btn.grid(row=2, column=2, padx=6)
 
         self._stop_event = threading.Event()
         self._stream_thread = None
+        self._stream_running = False
+        self.last_esp_ip = None
 
         # periodic UI update
         self.after(200, self._periodic)
@@ -73,23 +95,54 @@ class PCControlGUI(tk.Tk):
             if part:
                 ok = self.server.send(part)
                 if not ok:
-                    messagebox.showwarning("No connection", "No ESP connected to send command")
+                    messagebox.showwarning(
+                        "No connection", "No ESP connected to send command"
+                    )
 
     def _periodic(self):
         # Update connection label
         if self.server.client_addr:
-            self.conn_label.config(text=f"Connected: {self.server.client_addr[0]}", foreground="green")
-            if self._stream_thread is None or not self._stream_thread.is_alive():
-                esp_ip = self.server.client_addr[0]
-                self._stop_event.clear()
-                self._stream_thread = threading.Thread(target=self._stream_loop, args=(esp_ip,), daemon=True)
-                self._stream_thread.start()
+            self.conn_label.config(
+                text=f"Connected: {self.server.client_addr[0]}", foreground="green"
+            )
+            esp_ip = self.server.client_addr[0]
+            # if stream not running, start it
+            if not self._stream_running:
+                self.start_stream(esp_ip)
         else:
             self.conn_label.config(text="No ESP connected", foreground="red")
             # stop stream thread
             self._stop_event.set()
 
         self.after(200, self._periodic)
+
+    def start_stream(self, esp_ip):
+        # stop previous
+        self.stop_stream()
+        self.last_esp_ip = esp_ip
+        self._stop_event.clear()
+        self._stream_thread = threading.Thread(
+            target=self._stream_loop, args=(esp_ip,), daemon=True
+        )
+        self._stream_thread.start()
+
+    def stop_stream(self):
+        try:
+            if self._stream_thread and self._stream_thread.is_alive():
+                self._stop_event.set()
+                self._stream_thread.join(timeout=1)
+        except Exception:
+            pass
+        self._stream_thread = None
+        self._stream_running = False
+
+    def retry_stream(self):
+        if self.last_esp_ip:
+            self.start_stream(self.last_esp_ip)
+        else:
+            messagebox.showinfo(
+                "Reintentar", "No hay IP de ESP conocida. Esperando conexión TCP."
+            )
 
     def _stream_loop(self, esp_ip):
         url = f"http://{esp_ip}:8080/stream"
@@ -114,13 +167,13 @@ class PCControlGUI(tk.Tk):
                 cap.release()
                 return
         except Exception as e:
-            print('cv2 stream error:', e)
+            print("cv2 stream error:", e)
 
         # fallback to requests MJPEG read
         try:
             resp = requests.get(url, stream=True, timeout=5)
             if resp.status_code != 200:
-                print('Stream HTTP', resp.status_code)
+                print("Stream HTTP", resp.status_code)
                 return
             bytes_stream = b""
             for chunk in resp.iter_content(chunk_size=1024):
@@ -133,14 +186,14 @@ class PCControlGUI(tk.Tk):
                     jpg = bytes_stream[a : b + 2]
                     bytes_stream = bytes_stream[b + 2 :]
                     try:
-                        img = Image.open(io.BytesIO(jpg)).convert('RGB')
+                        img = Image.open(io.BytesIO(jpg)).convert("RGB")
                         imgtk = ImageTk.PhotoImage(img)
                         self.canvas.imgtk = imgtk
                         self.canvas.config(image=imgtk)
                     except Exception as e:
-                        print('image decode error', e)
+                        print("image decode error", e)
         except Exception as e:
-            print('requests stream error:', e)
+            print("requests stream error:", e)
 
     def on_close(self):
         self._stop_event.set()
@@ -150,9 +203,9 @@ class PCControlGUI(tk.Tk):
 
 def main():
     app = PCControlGUI()
-    app.protocol('WM_DELETE_WINDOW', app.on_close)
+    app.protocol("WM_DELETE_WINDOW", app.on_close)
     app.mainloop()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
