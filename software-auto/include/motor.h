@@ -4,13 +4,15 @@
 #include <math.h>
 
 // Pines (centralizados para evitar duplicados)
-#define MOTOR1_PWM_PIN 23
-#define MOTOR1_IN1_PIN 22
-#define MOTOR1_IN2_PIN 18
-
-#define MOTOR2_PWM_PIN 5
-#define MOTOR2_IN1_PIN 21
-#define MOTOR2_IN2_PIN 19
+// Asignación solicitada por el usuario
+// Motor A
+#define MOTOR1_PWM_PIN 15
+#define MOTOR1_IN1_PIN 2
+#define MOTOR1_IN2_PIN 0
+// Motor B
+#define MOTOR2_PWM_PIN 4
+#define MOTOR2_IN1_PIN 16
+#define MOTOR2_IN2_PIN 17
 
 // PWM / LEDC
 static const uint32_t PWM_FREQ = 20000u;
@@ -25,6 +27,6 @@ static const uint32_t RAMP_INTERVAL_MS = 20u;
 
 
 void motorInit();
-void setMotorTarget(u_int8_t motor, u_int16_t speed8, bool forward);
+void setMotorTarget(uint8_t motor, uint8_t speed8, bool forward);
 void stopAll();
 void updateMotor();
