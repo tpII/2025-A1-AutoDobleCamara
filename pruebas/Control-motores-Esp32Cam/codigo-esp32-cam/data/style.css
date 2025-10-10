@@ -1,0 +1,120 @@
+body { 
+    margin:0; 
+    padding:0; 
+    background:#000; 
+    color:#fff; 
+    font-family:Arial, sans-serif; 
+}
+
+.page { 
+    display:flex; 
+    gap:12px; 
+    align-items:flex-start; 
+    padding:12px; 
+}
+
+.stream-container { 
+    border:2px solid #333; 
+    border-radius:8px; 
+    overflow:hidden; 
+    background:#111; 
+}
+
+#stream { 
+    display:block; 
+    max-width:60vw; 
+    max-height:80vh; 
+    image-rendering:-webkit-optimize-contrast; 
+    image-rendering:pixelated; 
+}
+
+.controls { 
+    width:260px; 
+    background:#111; 
+    padding:10px; 
+    border-radius:8px; 
+    border:2px solid #333; 
+}
+
+.btn { 
+    width:100%; 
+    padding:12px; 
+    margin:6px 0; 
+    font-size:18px; 
+    border-radius:6px; 
+    cursor:pointer; 
+    background:#333; 
+    color:#fff; 
+    border:none; 
+}
+
+.btn:hover { background:#444; }
+.btn:active { background:#666; }
+
+.grid { 
+    display:grid; 
+    grid-template-columns:1fr 1fr; 
+    gap:6px; 
+}
+
+input, label { 
+    width:100%; 
+    box-sizing:border-box; 
+    margin:6px 0; 
+    padding:8px; 
+    background:#000; 
+    color:#fff; 
+    border:1px solid #444; 
+    border-radius:4px; 
+}
+
+.small { 
+    font-size:13px; 
+    color:#bbb; 
+    margin-bottom:6px; 
+}
+
+.status-good { color: #0f0; }
+.status-error { color: #f00; }
+.status-warning { color: #ff0; }
+
+.help-text { 
+    font-size: 11px; 
+    color: #888; 
+    margin-top: 5px; 
+}
+
+.success { 
+    color: #0f0; 
+    margin: 10px 0; 
+    text-align: center; 
+    font-weight: bold;
+}
+
+#status {
+    height:120px; 
+    overflow:auto; 
+    background:#000; 
+    border:1px solid #222; 
+    padding:6px; 
+    font-size:11px;
+    font-family: monospace;
+}
+
+/* Responsive para móviles */
+@media (max-width: 768px) {
+    .page {
+        flex-direction: column;
+        padding: 8px;
+    }
+    
+    .controls {
+        width: 100%;
+        max-width: 400px;
+    }
+    
+    #stream {
+        max-width: 90vw;
+        max-height: 40vh;
+    }
+}

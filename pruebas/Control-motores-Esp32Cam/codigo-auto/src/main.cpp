@@ -38,6 +38,7 @@ void processLine(String line) {
         spd = constrain(spd, 0, 255);
         setMotorTarget(1, spd, fwd);
         setMotorTarget(2, spd, fwd);
+        
         Serial.printf("ACK ALL %s %d\n", fwd ? "F" : "R", spd);
         return;
     }

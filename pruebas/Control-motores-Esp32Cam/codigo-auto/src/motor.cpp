@@ -44,6 +44,7 @@ void setMotorDirect(uint8_t motor, uint16_t pwm, bool forward) {
 }
 
 // establece objetivo (externamente usado por main)
+
 void setMotorTarget(uint8_t motor, uint8_t speed8, bool forward) {
     uint16_t pwm = linearizeSpeed(speed8);
     if (motor == 1) {

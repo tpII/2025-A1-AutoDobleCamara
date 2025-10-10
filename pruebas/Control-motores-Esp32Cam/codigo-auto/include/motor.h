@@ -25,6 +25,6 @@ static const uint32_t RAMP_INTERVAL_MS = 20u;
 
 
 void motorInit();
-void setMotorTarget(u_int8_t motor, u_int16_t speed8, bool forward);
+void setMotorTarget(uint8_t motor, uint8_t speed8, bool forward);
 void stopAll();
 void updateMotor();

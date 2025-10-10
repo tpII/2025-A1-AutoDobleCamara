@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Control Robot</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="page">
+    <div class="stream-container">
+      <img id="stream" alt="Robot Camera Stream" />
+    </div>
+
+    <div class="controls">
+      <div class="success">✅ Sistema funcionando desde SPIFFS</div>
+      
+      <div class="small">Robot target (IP:port)</div>
+      <input id="robot_ip" placeholder="192.168.4.2" />
+      <input id="robot_port" placeholder="12345" />
+
+      <div class="small">Control</div>
+      <div class="grid">
+        <button class="btn" onclick="sendCmd('ALL F 200')">Adelante</button>
+        <button class="btn" onclick="sendCmd('ALL R 200')">Atras</button>
+        <button class="btn" onclick="sendCmd('MOTOR 1 F 180')">Izquierda</button>
+        <button class="btn" onclick="sendCmd('MOTOR 2 F 180')">Derecha</button>
+      </div>
+      <button class="btn" style="background:#b22222;color:#fff;" onclick="sendCmd('STOP')">STOP</button>
+      
+      <div class="small">Debug & Tools</div>
+      <div class="grid">
+        <button class="btn" onclick="testConnection()" style="background:#333;">Test Connection</button>
+        <button class="btn" onclick="restartStream()" style="background:#333;">Restart Stream</button>
+      </div>
+      
+      <div class="help-text">
+        Keyboard: WASD/Arrows=move, Space/Esc=stop, P=ping, R=restart
+      </div>
+
+      <div class="small">Estado</div>
+      <pre id="status"></pre>
+    </div>
+  </div>
+
+  <!-- Cambiar la referencia para que coincida con el handler -->
+  <script src="/robot-control.js"></script>
+</body>
+</html>
+      </div>
+      
+      <div class="help-text">
+        Keyboard: WASD/Arrows=move, Space/Esc=stop, P=ping, R=restart
+      </div>
+
+      <div class="small">Estado</div>
+      <pre id="status" style="height:120px; overflow:auto; background:#000; border:1px solid #222; padding:6px; font-size:11px;"></pre>
+    </div>
+  </div>
+
+  
+ 
+</body>
+</html>
+ 
+</body>
+</html>
+    

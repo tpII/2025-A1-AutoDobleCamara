@@ -1,38 +1,15 @@
 #include <WiFi.h>
 #include <WebServer.h>
-#include "esp_camera.h"
+#include <esp_camera.h>
+#include <SPIFFS.h>  // Usar SPIFFS en lugar de headers
+#include <webpage.h>
 
-// Configuración WiFi
-const char* ssid = "ESP32_AP";
-const char* password = "12345678";
-
-// Servidor web
-WebServer server(80);
-IPAddress robotIP(192,168,4,2); // IP por defecto del otro ESP32 (ajustable desde la UI)
-uint16_t robotPort = 12345;     // puerto por defecto (configurable)
-
-// Configuración de la cámara según tu tabla
-camera_config_t config;
-
-void testCameraConnections() {
-  Serial.println("\n🔍 === DIAGNÓSTICO DE CONEXIONES ===");
-  
-  // Verificar pines básicos (ESP32-CAM AI-Thinker)
-  Serial.println("📋 Configuración de pines (AI-Thinker ESP32-CAM):");
-  Serial.printf("- SIOD (SDA): GPIO %d\n", 26);
-  Serial.printf("- SIOC (SCL): GPIO %d\n", 27);
-  Serial.printf("- XCLK: GPIO %d\n", 0);
-  Serial.printf("- PCLK: GPIO %d\n", 22);
-  Serial.printf("- VSYNC: GPIO %d\n", 25);
-  Serial.printf("- HREF: GPIO %d\n", 23);
-  Serial.printf("- D0-D7: %d,%d,%d,%d,%d,%d,%d,%d\n", 5,18,19,21,36,39,34,35);
-  Serial.printf("- PWDN: GPIO %d\n", 32);
-  Serial.printf("- RESET: %s\n", "-1 (no conectado)");
-}
+// Servidor TCP para recibir conexiones del ESP32-auto
+WiFiServer tcpServer(12345);
+WiFiClient tcpClientFromAuto;
 
 void setupCamera() {
-  // Primer intento con configuración original
-  testCameraConnections();
+
   
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -56,9 +33,8 @@ void setupCamera() {
   config.pin_reset = -1;
   config.pixel_format = PIXFORMAT_JPEG;
   
-  Serial.println("\n📸 Iniciando configuración de cámara...");
+  Serial.println("\n Iniciando configuración de cámara...");
   Serial.printf("PSRAM encontrada: %s\n", psramFound() ? "SI" : "NO");
-  Serial.println("🔧 Configuración: OPTIMIZADA para ESP32-CAM (AI-Thinker)");
   
   // Ajustes basados en PSRAM
   if (psramFound()) {
@@ -79,8 +55,8 @@ void setupCamera() {
   esp_err_t err = esp_camera_init(&config);
   
   if (err == ESP_OK) {
-    Serial.println("✅ ¡Cámara inicializada correctamente!");
-    Serial.printf("📸 Config: %d (jpeg q=%d, fb_count=%d, fb_loc=%s)\n", 
+    Serial.println(" ¡Cámara inicializada correctamente!");
+    Serial.printf(" Config: %d (jpeg q=%d, fb_count=%d, fb_loc=%s)\n", 
                   config.frame_size, config.jpeg_quality, config.fb_count,
                   (config.fb_location==CAMERA_FB_IN_PSRAM) ? "PSRAM" : "DRAM");
     
@@ -106,165 +82,140 @@ void setupCamera() {
       s->set_vflip(s, 0);          // Sin volteo vertical
       s->set_dcw(s, 1);            // Windowing activado
       s->set_colorbar(s, 0);       // Sin barras de test
-      Serial.println("⚙️ Configuración avanzada del sensor aplicada");
+      Serial.println(" Configuración avanzada del sensor aplicada");
     }
     
     // Test de captura
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
-      Serial.println("❌ Error capturando imagen de prueba");
+      Serial.println(" Error capturando imagen de prueba");
     } else {
-      Serial.printf("✅ Imagen de prueba: %d bytes\n", fb->len);
+      Serial.printf(" Imagen de prueba: %d bytes\n", fb->len);
       esp_camera_fb_return(fb);
     }
   } else {
-    Serial.printf("❌ ERROR CRÍTICO: No se puede inicializar cámara: 0x%x\n", err);
-    Serial.println("🔴 Incluso con configuración mínima falla");
-    Serial.println("🔴 Verificar conexiones físicas de nuevo");
+    Serial.printf(" ERROR CRÍTICO: No se puede inicializar cámara: 0x%x\n", err);
+    Serial.println(" Incluso con configuración mínima falla");
+    Serial.println(" Verificar conexiones físicas de nuevo");
   }
 }
 
-// Nuevo: envío por TCP (no necesita variable global)
+// Función para envío de comandos por TCP al ESP32-auto
 static bool sendCommandToRobot(const String &cmd_in, IPAddress overrideIP = IPAddress(0,0,0,0), uint16_t overridePort = 0) {
     String cmd = cmd_in;
     if (!cmd.endsWith("\n")) cmd += "\n";
+    
+    // Si hay cliente TCP conectado, enviar por ahí
+    if (tcpClientFromAuto && tcpClientFromAuto.connected()) {
+        tcpClientFromAuto.print(cmd);
+        Serial.printf("Comando enviado al auto via TCP: %s", cmd.c_str());
+        return true;
+    }
+    
+    // Si no hay cliente TCP, intentar conexión directa (fallback)
     IPAddress dest = (overrideIP != IPAddress(0,0,0,0)) ? overrideIP : robotIP;
     uint16_t port = (overridePort != 0) ? overridePort : robotPort;
 
     WiFiClient client;
-    // Timeout razonable para conectar (ej. 2000ms)
+    Serial.printf("Enviando comando TCP a %s:%u : %s", dest.toString().c_str(), port, cmd.c_str());
+    
     if (!client.connect(dest, port)) {
         Serial.printf("TCP connect failed to %s:%u\n", dest.toString().c_str(), port);
         return false;
     }
-    // Enviar datos completos
-    size_t total = 0;
-    const char *buf = cmd.c_str();
-    size_t len = cmd.length();
-    while (total < len) {
-        int w = client.write((const uint8_t*)(buf + total), len - total);
-        if (w <= 0) {
-            Serial.printf("TCP write failed after %u bytes to %s:%u\n", total, dest.toString().c_str(), port);
-            client.stop();
-            return false;
-        }
-        total += (size_t)w;
-    }
+    
+    client.print(cmd);
     client.flush();
+    
+    // Leer respuesta si está disponible
+    unsigned long timeout = millis() + 1000;
+    while (client.connected() && millis() < timeout) {
+        if (client.available()) {
+            String response = client.readStringUntil('\n');
+            response.trim();
+            if (response.length() > 0) {
+                Serial.println("Respuesta del robot: " + response);
+                break;
+            }
+        }
+        delay(10);
+    }
+    
     client.stop();
-    Serial.printf("CMD TCP -> %s:%u : %s", dest.toString().c_str(), port, cmd.c_str());
+    Serial.println("TCP comando enviado exitosamente");
     return true;
 }
 
-// Nuevo: handler HTTP para /cmd
 void handleCmd() {
-    // Parámetros: cmd (string), ip (opcional), port (opcional)
+    Serial.printf("[HTTP] 🔧 /cmd request from %s\n", server.client().remoteIP().toString().c_str());
+    Serial.printf("[HTTP] 📋 Full URI: %s\n", server.uri().c_str());
+    Serial.printf("[HTTP] 📋 Arguments count: %d\n", server.args());
+    
+    // Imprimir todos los argumentos para debug
+    for (int i = 0; i < server.args(); i++) {
+        Serial.printf("[HTTP] 📋 Arg[%d]: %s = %s\n", i, server.argName(i).c_str(), server.arg(i).c_str());
+    }
+    
     if (!server.hasArg("cmd")) {
+        Serial.println("[HTTP] ❌ ERROR: missing cmd parameter");
         server.send(400, "text/plain", "ERR missing cmd");
         return;
     }
+    
     String cmd = server.arg("cmd");
     String ip_str = server.arg("ip");
     String port_str = server.arg("port");
+    
+    Serial.printf("[HTTP] 🎯 Parsed - Command: '%s', IP: '%s', Port: '%s'\n", 
+                  cmd.c_str(), 
+                  ip_str.length() ? ip_str.c_str() : "(default)", 
+                  port_str.length() ? port_str.c_str() : "(default)");
+    
     IPAddress ip_override(0,0,0,0);
     uint16_t port_override = 0;
+    
     if (ip_str.length()) {
         if (!ip_override.fromString(ip_str)) {
+            Serial.printf("[HTTP] ❌ ERROR: invalid IP format: %s\n", ip_str.c_str());
             server.send(400, "text/plain", "ERR invalid ip");
             return;
         }
     }
+    
     if (port_str.length()) {
         port_override = (uint16_t)port_str.toInt();
         if (port_override == 0) {
+            Serial.printf("[HTTP] ❌ ERROR: invalid port: %s\n", port_str.c_str());
             server.send(400, "text/plain", "ERR invalid port");
             return;
         }
     }
+    
+    Serial.printf("[HTTP] 🚀 About to send command: '%s'\n", cmd.c_str());
     bool ok = sendCommandToRobot(cmd, ip_override, port_override);
-    if (ok) server.send(200, "text/plain", "OK");
-    else server.send(500, "text/plain", "ERR send failed");
+    
+    if (ok) {
+        Serial.println("[HTTP] ✅ Command sent successfully");
+        server.send(200, "text/plain", "OK - Comando enviado al robot");
+    } else {
+        Serial.println("[HTTP] ❌ ERROR: Failed to send command");
+        server.send(500, "text/plain", "ERR send failed");
+    }
 }
 
 void handleRoot() {
-  String html = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Stream</title>
-    <style>
-        body { margin:0; padding:0; background:#000; color:#fff; font-family:Arial, sans-serif; }
-        .page { display:flex; gap:12px; align-items:flex-start; padding:12px; }
-        .stream-container { border:2px solid #333; border-radius:8px; overflow:hidden; background:#111; }
-        #stream { display:block; max-width:60vw; max-height:80vh; image-rendering:-webkit-optimize-contrast; image-rendering:pixelated; }
-        .controls { width:260px; background:#111; padding:10px; border-radius:8px; border:2px solid #333; }
-        .btn { width:100%; padding:12px; margin:6px 0; font-size:18px; border-radius:6px; cursor:pointer; }
-        .grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-        input, label { width:100%; box-sizing:border-box; margin:6px 0; padding:8px; background:#000; color:#fff; border:1px solid #444; border-radius:4px; }
-        .small { font-size:13px; color:#bbb; margin-bottom:6px; }
-    </style>
-</head>
-<body>
-  <div class="page">
-    <div class="stream-container">
-      <img id="stream" />
-    </div>
-
-    <div class="controls">
-      <div class="small">Robot target (IP:port)</div>
-      <input id="robot_ip" placeholder="192.168.4.2" />
-      <input id="robot_port" placeholder="12345" />
-
-      <div class="small">Control</div>
-      <div class="grid">
-        <button class="btn" id="btn_fwd" onclick="sendCmd('ALL F 200')">Adelante</button>
-        <button class="btn" id="btn_back" onclick="sendCmd('ALL R 200')">Atras</button>
-        <button class="btn" id="btn_left" onclick="sendCmd('MOTOR 1 F 180')">Izquierda</button>
-        <button class="btn" id="btn_right" onclick="sendCmd('MOTOR 2 F 180')">Derecha</button>
-      </div>
-      <button class="btn" style="background:#b22222;color:#fff;" onclick="sendCmd('STOP')">STOP</button>
-
-      <div class="small">Estado</div>
-      <pre id="status" style="height:120px; overflow:auto; background:#000; border:1px solid #222; padding:6px;"></pre>
-    </div>
-  </div>
-
-<script>
-const img = document.getElementById('stream');
-const status = document.getElementById('status');
-
-function appendStatus(s){ status.textContent = new Date().toLocaleTimeString() + ' - ' + s + '\\n' + status.textContent; }
-
-function getTarget(){
-  const ip = document.getElementById('robot_ip').value.trim();
-  const port = document.getElementById('robot_port').value.trim();
-  return { ip: ip, port: port };
-}
-
-function sendCmd(cmd){
-  const tgt = getTarget();
-  let url = '/cmd?cmd=' + encodeURIComponent(cmd);
-  if (tgt.ip) url += '&ip=' + encodeURIComponent(tgt.ip);
-  if (tgt.port) url += '&port=' + encodeURIComponent(tgt.port);
-  fetch(url).then(r => r.text()).then(t => {
-    appendStatus('Sent: ' + cmd + ' -> ' + t);
-  }).catch(e => {
-    appendStatus('ERROR sending: ' + e);
-  });
-}
-
-// Auto start stream
-img.src = '/stream?t=' + Date.now();
-img.onload = function(){ appendStatus('Stream OK'); };
-img.onerror = function(){ appendStatus('Stream error, retrying...'); setTimeout(()=>img.src='/stream?t='+Date.now(),1000); };
-</script>
-</body>
-</html>
-)rawliteral";
-  
-  server.send(200, "text/html", html);
+  if (SPIFFS.exists("/index.html")) {
+    File file = SPIFFS.open("/index.html", "r");
+    if (file) {
+      server.streamFile(file, "text/html");
+      file.close();
+      Serial.println("[HTTP] ✅ Served index.html from SPIFFS");
+      return;
+    }
+  }
+  // Fallback al HTML embebido
+  Serial.println("[HTTP] 🚨 Serving fallback HTML (SPIFFS not available)");
+  server.send(200, "text/html", index_html);
 }
 
 void handleStream() {
@@ -288,7 +239,7 @@ void handleStream() {
     if (!fb) {
       failCount++;
       if (failCount % 10 == 1) {  // Solo log cada 10 fallos
-        Serial.printf("❌ Camera capture failed (frame #%d) - manteniendo stream\n", frameCount);
+        Serial.printf(" Camera capture failed (frame #%d) - manteniendo stream\n", frameCount);
       }
       
       // Si tenemos un frame previo, lo enviamos para mantener el stream activo
@@ -308,7 +259,7 @@ void handleStream() {
       
       // Si llevamos muchos fallos, intentar reinicializar
       if (failCount > 50) {
-        Serial.println("🔄 Demasiados fallos - reinicializando cámara...");
+        Serial.println(" Demasiados fallos - reinicializando cámara...");
         esp_camera_deinit();
         delay(200);
         setupCamera();
@@ -332,9 +283,9 @@ void handleStream() {
       }
     }
     
-    if (frameCount % 100 == 0) { // Log cada 100 frames
-      Serial.printf("📸 Frame #%d capturado: %d bytes\n", frameCount, fb->len);
-    }
+    // if (frameCount % 100 == 0) { // Log cada 100 frames
+    //   Serial.printf("📸 Frame #%d capturado: %d bytes\n", frameCount, fb->len);
+    // }
     
     String header = "--frame\r\n";
     header += "Content-Type: image/jpeg\r\n";
@@ -354,29 +305,95 @@ void handleStream() {
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("ESP32 Camera Stream iniciando...");
+  Serial.println("🚀 ESP32-CAM Control Web Server iniciando...");
+
+  // Inicializar SPIFFS para archivos web separados
+  if (!SPIFFS.begin(true)) {
+    Serial.println("❌ ERROR: Failed to mount SPIFFS - usando HTML embebido");
+  } else {
+    Serial.println("✅ SPIFFS montado correctamente");
+    
+    // Listar archivos disponibles
+    File root = SPIFFS.open("/");
+    if (root && root.isDirectory()) {
+      File file = root.openNextFile();
+      Serial.println("📁 Archivos en SPIFFS:");
+      while (file) {
+        Serial.printf("  %s (%d bytes)\n", file.name(), file.size());
+        file = root.openNextFile();
+      }
+    }
+  }
 
   // Configurar WiFi AP
   WiFi.softAP(ssid, password);
+  
+  // Configurar IP del punto de acceso
+  IPAddress local_IP(192, 168, 4, 1);  // IP estándar del AP
+  IPAddress gateway(192, 168, 4, 1);
+  IPAddress subnet(255, 255, 255, 0);
+  
+  WiFi.softAPConfig(local_IP, gateway, subnet);
+  
   Serial.println("WiFi AP iniciado");
-  Serial.print("IP: ");
+  Serial.print("IP del AP: ");
   Serial.println(WiFi.softAPIP());
+  Serial.printf("Robot IP objetivo: %s:%u\n", robotIP.toString().c_str(), robotPort);
+
+  // Inicializar servidor TCP para recibir conexiones del auto
+  tcpServer.begin();
+  Serial.println("Servidor TCP iniciado en puerto 12345");
+  Serial.println("Esperando conexiones del ESP32-auto...");
 
   // Inicializar cámara
   setupCamera();
 
-  // Configurar servidor web
-  server.on("/cmd", HTTP_GET, handleCmd); // acepta argumentos: cmd, ip (opcional), port (opcional)
-  server.on("/", handleRoot);              // Página principal
-  server.on("/stream", handleStream);      // Stream de video
+  // Configurar servidor web con archivos separados
+  server.on("/cmd", HTTP_GET, handleCmd);
+  server.on("/", handleRoot);
+  server.on("/stream", handleStream);
+  server.on("/style.css", handleCSS);           // CSS desde SPIFFS
+  server.on("/robot-control.js", handleJS);    // JavaScript desde SPIFFS
+  
   server.begin();
-  Serial.println("Servidor web iniciado en puerto 80");
-  Serial.println("Conecta tu celular al WiFi 'ESP32_AP' y ve a:");
-  Serial.println("- Página principal: http://192.168.4.1");
-  Serial.println("- Stream directo: http://192.168.4.1/stream");
+  
+  Serial.println("🌐 Servidor web iniciado con archivos separados");
+  Serial.println("📂 Archivos disponibles:");
+  Serial.printf("- 🏠 HTML: http://%s/\n", WiFi.softAPIP().toString().c_str());
+  Serial.printf("- 🎨 CSS: http://%s/style.css\n", WiFi.softAPIP().toString().c_str());
+  Serial.printf("- ⚡ JS: http://%s/robot-control.js\n", WiFi.softAPIP().toString().c_str());
+  Serial.printf("- 📹 Stream: http://%s/stream\n", WiFi.softAPIP().toString().c_str());
+  Serial.printf("- 🔧 API: http://%s/cmd?cmd=PING\n", WiFi.softAPIP().toString().c_str());
 }
 
 void loop() {
+  // Watchdog manual para detectar cuelgues
+  static unsigned long lastHeartbeat = 0;
+  if (millis() - lastHeartbeat > 30000) { // cada 30 segundos
+    lastHeartbeat = millis();
+    Serial.printf("[HEARTBEAT] Free heap: %d bytes, WiFi clients: %d\n", 
+                  ESP.getFreeHeap(), WiFi.softAPgetStationNum());
+  }
+  
   server.handleClient();
+  
+  // Manejar conexiones TCP entrantes del ESP32-auto
+  if (!tcpClientFromAuto || !tcpClientFromAuto.connected()) {
+    tcpClientFromAuto = tcpServer.available();
+    if (tcpClientFromAuto) {
+      Serial.println("ESP32-auto conectado desde: " + tcpClientFromAuto.remoteIP().toString());
+      tcpClientFromAuto.println("ESP32-CAM ready");
+    }
+  }
+  
+  // Leer datos del auto si está conectado (aunque no esperamos comandos del auto)
+  if (tcpClientFromAuto && tcpClientFromAuto.connected() && tcpClientFromAuto.available()) {
+    String message = tcpClientFromAuto.readStringUntil('\n');
+    message.trim();
+    if (message.length() > 0) {
+      Serial.println("Mensaje del auto: " + message);
+    }
+  }
+  
   delay(10);
 }

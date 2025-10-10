@@ -18,15 +18,15 @@
 #endif
 
 #ifndef WIFI_PASS
-#define WIFI_PASS      "1234568"
+#define WIFI_PASS      "12345678"
 #endif
 
 #ifndef SERVER_IP
-#define SERVER_IP      "192.168.4.1"  // IP o hostname del servidor TCP
+#define SERVER_IP      "192.168.4.1"  // IP del ESP32-CAM (servidor)
 #endif
 
 #ifndef SERVER_PORT
-#define SERVER_PORT    12345
+#define SERVER_PORT    12345  // Puerto donde el ESP32-CAM escucha
 #endif
 
 // Serial / diagnóstico
