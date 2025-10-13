@@ -51,63 +51,57 @@ void setupCamera() {
   config.pin_pwdn = -1;
   config.pin_reset = -1;
   config.pixel_format = PIXFORMAT_JPEG;
-  
-  Serial.println("\n📸 Iniciando configuración de cámara...");
-  Serial.printf("PSRAM encontrada: %s\n", psramFound() ? "SI" : "NO");
-  Serial.println("🔧 Configuración: OPTIMIZADA para alta calidad");
-  
-  // Configuración mejorada - priorizar fluidez máxima
-  config.frame_size = FRAMESIZE_QVGA;     // 320x240 - Mejor calidad
-  config.jpeg_quality = 8;                // Calidad excelente (menor compresión)
-  config.fb_count = 2;                    // Doble buffer para fluidez
-  config.fb_location = CAMERA_FB_IN_DRAM; // Forzar DRAM para velocidad
-  config.grab_mode = CAMERA_GRAB_LATEST;  // Siempre el frame más reciente
-  config.xclk_freq_hz = 0;                // Sin clock externo
+
+  config.frame_size = FRAMESIZE_QQVGA;   
+  config.jpeg_quality = 15;                
+  config.fb_count = 1;                    
+  config.fb_location = CAMERA_FB_IN_DRAM;
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;  
+  config.xclk_freq_hz = 0;               
 
   esp_err_t err = esp_camera_init(&config);
   
   if (err == ESP_OK) {
-    Serial.println("✅ ¡Cámara inicializada correctamente!");
-    Serial.printf("📸 Configuración: QVGA (320x240), Calidad: %d, Buffers: %d\n", 
+    Serial.println("Cámara inicializada correctamente!");
+    Serial.printf("Configuración: QVGA (320x240), Calidad: %d, Buffers: %d\n", 
                   config.jpeg_quality, config.fb_count);
     
     // Configuración avanzada del sensor para máxima calidad
     sensor_t * s = esp_camera_sensor_get();
     if (s) {
-      s->set_brightness(s, 0);     // 0 = neutro
-      s->set_contrast(s, 1);       // +1 para mejor definición
-      s->set_saturation(s, 1);     // +1 para colores más vivos
-      s->set_special_effect(s, 0); // Sin efectos
-      s->set_whitebal(s, 1);       // Balance blancos automático
-      s->set_awb_gain(s, 1);       // Ganancia AWB activa
-      s->set_wb_mode(s, 0);        // Modo automático
-      s->set_exposure_ctrl(s, 1);  // Exposición automática
-      s->set_aec2(s, 1);           // Algoritmo AEC mejorado
-      s->set_gain_ctrl(s, 1);      // Ganancia automática
-      s->set_agc_gain(s, 0);       // Ganancia base
-      s->set_bpc(s, 1);            // Corrección píxeles defectuosos
-      s->set_wpc(s, 1);            // Corrección píxeles blancos
-      s->set_raw_gma(s, 1);        // Gamma activado
-      s->set_lenc(s, 1);           // Corrección de lente
-      s->set_hmirror(s, 0);        // Sin espejo horizontal
-      s->set_vflip(s, 0);          // Sin volteo vertical
-      s->set_dcw(s, 1);            // Windowing activado
-      s->set_colorbar(s, 0);       // Sin barras de test
-      Serial.println("⚙️ Configuración avanzada del sensor aplicada");
+      s->set_brightness(s, 0);    
+      s->set_contrast(s, 1);      
+      s->set_saturation(s, 1);    
+      s->set_special_effect(s, 0); 
+      s->set_whitebal(s, 1);       
+      s->set_awb_gain(s, 1);       
+      s->set_wb_mode(s, 0);        
+      s->set_exposure_ctrl(s, 1);  
+      s->set_aec2(s, 1);           
+      s->set_gain_ctrl(s, 1);      
+      s->set_agc_gain(s, 0);       
+      s->set_bpc(s, 1);            
+      s->set_wpc(s, 1);            
+      s->set_raw_gma(s, 1);        
+      s->set_lenc(s, 1);           
+      s->set_hmirror(s, 0);        
+      s->set_vflip(s, 0);          
+      s->set_dcw(s, 1);            
+      s->set_colorbar(s, 0);       
+      Serial.println("Configuración avanzada del sensor aplicada");
     }
     
     // Test de captura
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
-      Serial.println("❌ Error capturando imagen de prueba");
+      Serial.println("Error capturando imagen de prueba");
     } else {
-      Serial.printf("✅ Imagen de prueba: %d bytes\n", fb->len);
+      Serial.printf("Imagen de prueba: %d bytes\n", fb->len);
       esp_camera_fb_return(fb);
     }
   } else {
-    Serial.printf("❌ ERROR CRÍTICO: No se puede inicializar cámara: 0x%x\n", err);
-    Serial.println("🔴 Incluso con configuración mínima falla");
-    Serial.println("🔴 Verificar conexiones físicas de nuevo");
+    Serial.printf("ERROR CRÍTICO: No se puede inicializar cámara: 0x%x\n", err);
+    Serial.println("Incluso con configuración mínima falla");
   }
 }
 
@@ -191,6 +185,7 @@ void handleStream() {
   server.sendContent(response);
   
   Serial.println("Cliente conectado al stream");
+  
   int frameCount = 0;
   int failCount = 0;
   
@@ -204,27 +199,12 @@ void handleStream() {
     if (!fb) {
       failCount++;
       if (failCount % 10 == 1) {  // Solo log cada 10 fallos
-        Serial.printf("❌ Camera capture failed (frame #%d) - manteniendo stream\n", frameCount);
-      }
-      
-      // Si tenemos un frame previo, lo enviamos para mantener el stream activo
-      if (lastFrame && lastFrameSize > 0) {
-        String header = "--frame\r\n";
-        header += "Content-Type: image/jpeg\r\n";
-        header += "Content-Length: " + String(lastFrameSize) + "\r\n\r\n";
-        
-        server.sendContent(header);
-        server.sendContent_P((char*)lastFrame, lastFrameSize);
-        server.sendContent("\r\n");
-        
-        frameCount++;
-        delay(50);  // Delay más largo para frames repetidos
-        continue;
+        Serial.printf("Camera capture failed (frame #%d) - manteniendo stream\n", frameCount);
       }
       
       // Si llevamos muchos fallos, intentar reinicializar
       if (failCount > 50) {
-        Serial.println("🔄 Demasiados fallos - reinicializando cámara...");
+        Serial.println("Demasiados fallos - reinicializando cámara...");
         esp_camera_deinit();
         delay(200);
         setupCamera();
@@ -238,18 +218,12 @@ void handleStream() {
     // Frame capturado exitosamente
     failCount = 0;  // Reset contador de fallos
     
-    // Guardar copia del frame para emergencias futuras
-    if (fb->len > 0 && fb->len < 50000) {  // Sanity check del tamaño
-      if (lastFrame) free(lastFrame);
-      lastFrame = (uint8_t*)malloc(fb->len);
-      if (lastFrame) {
-        memcpy(lastFrame, fb->buf, fb->len);
-        lastFrameSize = fb->len;
-      }
-    }
-    
     if (frameCount % 100 == 0) { // Log cada 100 frames
-      Serial.printf("📸 Frame #%d capturado: %d bytes\n", frameCount, fb->len);
+      Serial.printf("Frame #%d capturado: %d bytes\n", frameCount, fb->len);
+      // Logueo de estado de memoria
+      size_t freeHeap = esp_get_free_heap_size();
+      size_t minFree = esp_get_minimum_free_heap_size();
+      Serial.printf("Heap libre: %u bytes, min libre: %u bytes\n", freeHeap, minFree);
     }
     
     String header = "--frame\r\n";
@@ -262,7 +236,7 @@ void handleStream() {
     
     esp_camera_fb_return(fb);
     frameCount++;
-    delay(33); // ~30 FPS para mejor calidad con QVGA
+    delay(100); // ~30 FPS para mejor calidad con QVGA
   }
   
   Serial.printf("Cliente desconectado después de %d frames\n", frameCount);

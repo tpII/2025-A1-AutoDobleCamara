@@ -210,8 +210,27 @@ bool cameraInit()
         Serial.printf("📊 Memoria libre después de cámara: %d bytes\n", ESP.getFreeHeap());
     }
     sensor_t * s = esp_camera_sensor_get();
-    if (s->id.PID == OV2640_PID) {
-        Serial.println("Camera: OV2640 detected");
+    if (s) {
+      s->set_brightness(s, 0);    
+      s->set_contrast(s, 1);      
+      s->set_saturation(s, 1);    
+      s->set_special_effect(s, 0); 
+      s->set_whitebal(s, 1);       
+      s->set_awb_gain(s, 1);       
+      s->set_wb_mode(s, 0);        
+      s->set_exposure_ctrl(s, 1);  
+      s->set_aec2(s, 1);           
+      s->set_gain_ctrl(s, 1);      
+      s->set_agc_gain(s, 0);       
+      s->set_bpc(s, 1);            
+      s->set_wpc(s, 1);            
+      s->set_raw_gma(s, 1);        
+      s->set_lenc(s, 1);           
+      s->set_hmirror(s, 0);        
+      s->set_vflip(s, 0);          
+      s->set_dcw(s, 1);            
+      s->set_colorbar(s, 0);       
+      Serial.println("Configuración avanzada del sensor aplicada");
     }
 
     // Test de captura
