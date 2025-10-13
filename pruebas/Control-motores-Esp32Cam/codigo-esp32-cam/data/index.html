@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Control Robot</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>🤖 ESP32 Robot Control</h1>
+    
+    <div class="camera-feed">
+      <img id="stream" src="/stream" alt="Robot Camera Stream" />
+    </div>
+
+    <div class="status-info">
+      <span class="success">✅ Sistema funcionando desde SPIFFS</span>
+    </div>
+    
+    <div class="target-config">
+      <label>Robot target (IP:port)</label>
+      <input id="robot_ip" placeholder="192.168.4.2" />
+      <input id="robot_port" placeholder="12345" />
+    </div>
+
+    <!-- Controles mejorados en grid -->
+    <div class="controls-grid">
+      <div></div>
+      <button class="control-btn forward" 
+              onmousedown="sendCmd('ALL F 200')" 
+              ontouchstart="sendCmd('ALL F 200')"
+              onmouseup="sendCmd('STOP')" 
+              ontouchend="sendCmd('STOP')">
+        ⬆️ Adelante
+      </button>
+      <div></div>
+      
+      <button class="control-btn left" 
+              onmousedown="sendCmd('MOTOR 1 F 180')" 
+              ontouchstart="sendCmd('MOTOR 1 F 180')"
+              onmouseup="sendCmd('STOP')" 
+              ontouchend="sendCmd('STOP')">
+        ⬅️ Izquierda
+      </button>
+      <button class="control-btn stop" onclick="sendCmd('STOP')">
+        🛑 STOP
+      </button>
+      <button class="control-btn right" 
+              onmousedown="sendCmd('MOTOR 2 F 180')" 
+              ontouchstart="sendCmd('MOTOR 2 F 180')"
+              onmouseup="sendCmd('STOP')" 
+              ontouchend="sendCmd('STOP')">
+        ➡️ Derecha
+      </button>
+      
+      <div></div>
+      <button class="control-btn backward" 
+              onmousedown="sendCmd('ALL R 200')" 
+              ontouchstart="sendCmd('ALL R 200')"
+              onmouseup="sendCmd('STOP')" 
+              ontouchend="sendCmd('STOP')">
+        ⬇️ Atrás
+      </button>
+      <div></div>
+    </div>
+
+    <!-- Control de velocidad -->
+    <div class="speed-control">
+      <label for="speedSlider">Velocidad Global: <span id="currentSpeed">200</span></label>
+      <input type="range" id="speedSlider" min="50" max="255" value="200" 
+             onchange="updateSpeed(this.value)">
+    </div>
+      
+    <div class="debug-tools">
+      <button class="btn debug" onclick="testConnection()">🔧 Test Connection</button>
+      <button class="btn debug" onclick="restartStream()">📹 Restart Stream</button>
+    </div>
+    
+    <div class="help-text">
+      Keyboard: WASD/Arrows=move, Space/Esc=stop, P=ping, R=restart
+    </div>
+
+    <div class="status-section">
+      <label>Estado del Sistema</label>
+      <pre id="status"></pre>
+    </div>
+  </div>
+
+  <!-- JavaScript inline como respaldo si SPIFFS falla -->
+  <script>
+    // Funciones básicas inline para emergencia
+    window.sendCmd = window.sendCmd || function(cmd) {
+      console.log('📡 sendCmd inline:', cmd);
+      
+      // Obtener targets
+      const ip = document.getElementById('robot_ip').value.trim();
+      const port = document.getElementById('robot_port').value.trim();
+      
+      let url = '/cmd?cmd=' + encodeURIComponent(cmd);
+      if (ip) url += '&ip=' + encodeURIComponent(ip);
+      if (port) url += '&port=' + encodeURIComponent(port);
+      
+      fetch(url)
+        .then(response => response.text())
+        .then(text => console.log('✅ Response:', text))
+        .catch(error => console.error('❌ Error:', error));
+    };
+    
+    window.testConnection = window.testConnection || function() {
+      sendCmd('PING');
+    };
+    
+    window.restartStream = window.restartStream || function() {
+      const img = document.getElementById('stream');
+      img.src = '';
+      setTimeout(() => {
+        img.src = '/stream?t=' + Date.now();
+      }, 500);
+    };
+    
+    window.updateSpeed = window.updateSpeed || function(speed) {
+      document.getElementById('currentSpeed').textContent = speed;
+    };
+    
+    // Inicializar stream
+    setTimeout(() => {
+      const img = document.getElementById('stream');
+      if (img && !img.src.includes('/stream')) {
+        img.src = '/stream?t=' + Date.now();
+      }
+    }, 1000);
+    
+    console.log('📄 Inline JavaScript loaded as fallback');
+  </script>
+
+  <!-- Intentar cargar JavaScript externo -->
+  <script src="/robot-control.js" onerror="console.warn('⚠️ External JS failed, using inline fallback')"></script>
+</body>
+</html>
