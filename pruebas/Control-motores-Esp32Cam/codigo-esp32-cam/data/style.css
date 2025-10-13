@@ -1,120 +1,252 @@
 body { 
-    margin:0; 
-    padding:0; 
-    background:#000; 
-    color:#fff; 
-    font-family:Arial, sans-serif; 
+    margin: 0; 
+    padding: 20px; 
+    background: linear-gradient(135deg, #1e3c72, #2a5298);
+    color: #fff; 
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+    min-height: 100vh;
 }
 
-.page { 
-    display:flex; 
-    gap:12px; 
-    align-items:flex-start; 
-    padding:12px; 
+.container {
+    max-width: 600px;
+    margin: 0 auto;
+    background: rgba(17, 17, 17, 0.95);
+    padding: 20px;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    backdrop-filter: blur(10px);
 }
 
-.stream-container { 
-    border:2px solid #333; 
-    border-radius:8px; 
-    overflow:hidden; 
-    background:#111; 
+h1 {
+    text-align: center;
+    margin-bottom: 20px;
+    color: #00ff88;
+    text-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+}
+
+.camera-feed {
+    width: 100%;
+    margin-bottom: 20px;
+    border: 2px solid #333;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #000;
 }
 
 #stream { 
-    display:block; 
-    max-width:60vw; 
-    max-height:80vh; 
-    image-rendering:-webkit-optimize-contrast; 
-    image-rendering:pixelated; 
+    width: 100%;
+    height: auto;
+    display: block;
+    image-rendering: -webkit-optimize-contrast; 
+    image-rendering: pixelated;
 }
 
-.controls { 
-    width:260px; 
-    background:#111; 
-    padding:10px; 
-    border-radius:8px; 
-    border:2px solid #333; 
+.status-info {
+    text-align: center;
+    margin-bottom: 20px;
 }
 
-.btn { 
-    width:100%; 
-    padding:12px; 
-    margin:6px 0; 
-    font-size:18px; 
-    border-radius:6px; 
-    cursor:pointer; 
-    background:#333; 
-    color:#fff; 
-    border:none; 
+.success { 
+    color: #00ff88; 
+    font-weight: bold;
+    background: rgba(0, 255, 136, 0.1);
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(0, 255, 136, 0.3);
 }
 
-.btn:hover { background:#444; }
-.btn:active { background:#666; }
-
-.grid { 
-    display:grid; 
-    grid-template-columns:1fr 1fr; 
-    gap:6px; 
+.target-config {
+    margin-bottom: 20px;
 }
 
-input, label { 
-    width:100%; 
-    box-sizing:border-box; 
-    margin:6px 0; 
-    padding:8px; 
-    background:#000; 
-    color:#fff; 
-    border:1px solid #444; 
-    border-radius:4px; 
+.target-config label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #bbb;
 }
 
-.small { 
-    font-size:13px; 
-    color:#bbb; 
-    margin-bottom:6px; 
+.target-config input {
+    width: 48%;
+    margin: 0 1% 10px 0;
+    padding: 10px;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+/* Controles en grid mejorados */
+.controls-grid { 
+    display: grid; 
+    grid-template-columns: repeat(3, 1fr); 
+    gap: 10px; 
+    margin-bottom: 20px;
+    max-width: 300px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.control-btn { 
+    padding: 15px 10px; 
+    font-size: 16px; 
+    font-weight: bold;
+    border-radius: 10px; 
+    cursor: pointer; 
+    border: none;
+    transition: all 0.2s ease;
+    user-select: none;
+    min-height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.control-btn.forward { background: linear-gradient(135deg, #4CAF50, #45a049); }
+.control-btn.backward { background: linear-gradient(135deg, #FF9800, #F57C00); }
+.control-btn.left { background: linear-gradient(135deg, #2196F3, #1976D2); }
+.control-btn.right { background: linear-gradient(135deg, #9C27B0, #7B1FA2); }
+.control-btn.stop { background: linear-gradient(135deg, #f44336, #d32f2f); }
+
+.control-btn:hover { 
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.control-btn:active { 
+    transform: translateY(0);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+}
+
+/* Control de velocidad */
+.speed-control {
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.speed-control label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: bold;
+    color: #00ff88;
+}
+
+.speed-control input[type="range"] {
+    width: 80%;
+    height: 8px;
+    border-radius: 5px;
+    background: #333;
+    outline: none;
+    -webkit-appearance: none;
+}
+
+.speed-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #00ff88;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+}
+
+.debug-tools {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+    justify-content: center;
+}
+
+.btn.debug { 
+    padding: 8px 16px;
+    background: rgba(51, 51, 51, 0.8);
+    color: #fff;
+    border: 1px solid #555;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.btn.debug:hover { 
+    background: rgba(68, 68, 68, 0.9);
+    border-color: #00ff88;
+}
+
+.help-text { 
+    font-size: 11px; 
+    color: #888; 
+    text-align: center;
+    margin-bottom: 15px;
+    font-style: italic;
+}
+
+.status-section {
+    margin-top: 20px;
+}
+
+.status-section label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #bbb;
+}
+
+#status {
+    height: 120px; 
+    overflow: auto; 
+    background: rgba(0,0,0,0.8); 
+    border: 1px solid #333; 
+    padding: 10px; 
+    font-size: 11px;
+    font-family: 'Courier New', monospace;
+    border-radius: 8px;
+    color: #0ff;
 }
 
 .status-good { color: #0f0; }
 .status-error { color: #f00; }
 .status-warning { color: #ff0; }
 
-.help-text { 
-    font-size: 11px; 
-    color: #888; 
-    margin-top: 5px; 
-}
-
-.success { 
-    color: #0f0; 
-    margin: 10px 0; 
-    text-align: center; 
-    font-weight: bold;
-}
-
-#status {
-    height:120px; 
-    overflow:auto; 
-    background:#000; 
-    border:1px solid #222; 
-    padding:6px; 
-    font-size:11px;
-    font-family: monospace;
-}
-
 /* Responsive para móviles */
 @media (max-width: 768px) {
-    .page {
-        flex-direction: column;
-        padding: 8px;
+    body { padding: 10px; }
+    
+    .container {
+        padding: 15px;
+        border-radius: 10px;
     }
     
-    .controls {
-        width: 100%;
-        max-width: 400px;
+    .controls-grid {
+        max-width: 250px;
+        gap: 8px;
+    }
+    
+    .control-btn {
+        padding: 12px 8px;
+        font-size: 14px;
+        min-height: 45px;
     }
     
     #stream {
-        max-width: 90vw;
         max-height: 40vh;
     }
+    
+    .target-config input {
+        width: 100%;
+        margin: 0 0 10px 0;
+    }
+}
+
+/* Animaciones */
+@keyframes pulse {
+    0% { box-shadow: 0 0 5px rgba(0, 255, 136, 0.5); }
+    50% { box-shadow: 0 0 20px rgba(0, 255, 136, 0.8); }
+    100% { box-shadow: 0 0 5px rgba(0, 255, 136, 0.5); }
+}
+
+.success {
+    animation: pulse 2s infinite;
 }

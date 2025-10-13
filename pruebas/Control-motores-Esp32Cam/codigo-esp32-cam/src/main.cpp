@@ -191,6 +191,9 @@ void handleCmd() {
         }
     }
     
+    // Agregar respuesta inmediata para evitar timeout del navegador
+    server.sendHeader("Cache-Control", "no-cache");
+    
     Serial.printf("[HTTP] 🚀 About to send command: '%s'\n", cmd.c_str());
     bool ok = sendCommandToRobot(cmd, ip_override, port_override);
     
@@ -204,42 +207,128 @@ void handleCmd() {
 }
 
 void handleRoot() {
+  Serial.println("[HTTP] 🏠 Root request received");
+  
   if (SPIFFS.exists("/index.html")) {
     File file = SPIFFS.open("/index.html", "r");
     if (file) {
+      size_t fileSize = file.size();
+      
+      // Agregar headers para evitar cache del navegador
+      server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      server.sendHeader("Pragma", "no-cache");
+      server.sendHeader("Expires", "0");
+      
       server.streamFile(file, "text/html");
       file.close();
-      Serial.println("[HTTP] ✅ Served index.html from SPIFFS");
+      Serial.printf("[HTTP] ✅ Served index.html from SPIFFS (%d bytes)\n", fileSize);
       return;
+    } else {
+      Serial.println("[HTTP] ❌ Could not open /index.html from SPIFFS");
     }
+  } else {
+    Serial.println("[HTTP] ❌ /index.html not found in SPIFFS");
   }
+  
   // Fallback al HTML embebido
   Serial.println("[HTTP] 🚨 Serving fallback HTML (SPIFFS not available)");
   server.send(200, "text/html", index_html);
+}
+
+void handleJS() {
+  Serial.println("[HTTP] ⚡ JavaScript request received");
+  
+  if (SPIFFS.exists("/robot-control.js")) {
+    File file = SPIFFS.open("/robot-control.js", "r");
+    if (file) {
+      size_t fileSize = file.size();
+      
+      // Headers críticos para JavaScript
+      server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      server.sendHeader("Pragma", "no-cache");
+      server.sendHeader("Expires", "0");
+      server.sendHeader("Content-Type", "application/javascript; charset=utf-8");
+      
+      server.streamFile(file, "application/javascript");
+      file.close();
+      Serial.printf("[HTTP] ✅ Served robot-control.js from SPIFFS (%d bytes)\n", fileSize);
+      return;
+    } else {
+      Serial.println("[HTTP] ❌ Could not open /robot-control.js from SPIFFS");
+    }
+  } else {
+    Serial.println("[HTTP] ❌ /robot-control.js not found in SPIFFS");
+  }
+  
+  Serial.println("[HTTP] ❌ JavaScript not found in SPIFFS");
+  server.send(404, "text/plain", "JavaScript not found - SPIFFS issue");
+}
+
+void handleCSS() {
+  Serial.println("[HTTP] 🎨 CSS request received");
+  
+  if (SPIFFS.exists("/style.css")) {
+    File file = SPIFFS.open("/style.css", "r");
+    if (file) {
+      size_t fileSize = file.size();
+      
+      // Headers para CSS
+      server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      server.sendHeader("Content-Type", "text/css; charset=utf-8");
+      
+      server.streamFile(file, "text/css");
+      file.close();
+      Serial.printf("[HTTP] ✅ Served style.css from SPIFFS (%d bytes)\n", fileSize);
+      return;
+    } else {
+      Serial.println("[HTTP] ❌ Could not open /style.css from SPIFFS");
+    }
+  } else {
+    Serial.println("[HTTP] ❌ /style.css not found in SPIFFS");
+  }
+  
+  Serial.println("[HTTP] ❌ CSS not found in SPIFFS");
+  server.send(404, "text/plain", "CSS not found - SPIFFS issue");
 }
 
 void handleStream() {
   WiFiClient client = server.client();
   
   String response = "HTTP/1.1 200 OK\r\n";
-  response += "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n";
+  response += "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n";
+  response += "Connection: close\r\n";  // Importante: cerrar conexión cuando termine
+  response += "Cache-Control: no-cache\r\n";
+  response += "\r\n";
   server.sendContent(response);
   
-  Serial.println("Cliente conectado al stream");
+  Serial.println("📹 Cliente conectado al stream");
   int frameCount = 0;
   int failCount = 0;
+  unsigned long streamStartTime = millis();
   
   // Buffer para mantener el último frame válido
   static uint8_t* lastFrame = nullptr;
   static size_t lastFrameSize = 0;
   
   while (client.connected()) {
+    // Timeout para liberar conexión si es muy larga
+    if (millis() - streamStartTime > 300000) { // 5 minutos máximo
+      Serial.println("📹 Stream timeout - liberando conexión");
+      break;
+    }
+    
+    // Yield periodicamente para permitir otras tareas
+    if (frameCount % 10 == 0) {
+      yield(); // Permite que otras conexiones HTTP se procesen
+      delay(10);
+    }
+    
     camera_fb_t *fb = esp_camera_fb_get();
     
     if (!fb) {
       failCount++;
       if (failCount % 10 == 1) {  // Solo log cada 10 fallos
-        Serial.printf(" Camera capture failed (frame #%d) - manteniendo stream\n", frameCount);
+        Serial.printf("📹 Camera capture failed (frame #%d) - manteniendo stream\n", frameCount);
       }
       
       // Si tenemos un frame previo, lo enviamos para mantener el stream activo
@@ -257,13 +346,10 @@ void handleStream() {
         continue;
       }
       
-      // Si llevamos muchos fallos, intentar reinicializar
-      if (failCount > 50) {
-        Serial.println(" Demasiados fallos - reinicializando cámara...");
-        esp_camera_deinit();
-        delay(200);
-        setupCamera();
-        failCount = 0;
+      // Si llevamos muchos fallos, salir del stream
+      if (failCount > 20) { // Reducido de 50 a 20
+        Serial.println("📹 Demasiados fallos - terminando stream");
+        break;
       }
       
       delay(20);  // Delay corto para reintento rápido
@@ -283,13 +369,15 @@ void handleStream() {
       }
     }
     
-    // if (frameCount % 100 == 0) { // Log cada 100 frames
-    //   Serial.printf("📸 Frame #%d capturado: %d bytes\n", frameCount, fb->len);
-    // }
-    
     String header = "--frame\r\n";
     header += "Content-Type: image/jpeg\r\n";
     header += "Content-Length: " + String(fb->len) + "\r\n\r\n";
+    
+    // Verificar que el cliente sigue conectado antes de enviar
+    if (!client.connected()) {
+      esp_camera_fb_return(fb);
+      break;
+    }
     
     server.sendContent(header);
     server.sendContent_P((char*)fb->buf, fb->len);
@@ -297,10 +385,15 @@ void handleStream() {
     
     esp_camera_fb_return(fb);
     frameCount++;
-    delay(33); // ~30 FPS para mejor calidad con QVGA
+    
+    // Frame rate más conservador para liberar CPU
+    delay(40); // ~25 FPS en lugar de 30 FPS
   }
   
-  Serial.printf("Cliente desconectado después de %d frames\n", frameCount);
+  // Cerrar conexión explícitamente
+  client.stop();
+  Serial.printf("📹 Cliente desconectado después de %d frames (duración: %lu ms)\n", 
+                frameCount, millis() - streamStartTime);
 }
 
 void setup() {
@@ -308,19 +401,62 @@ void setup() {
   Serial.println("🚀 ESP32-CAM Control Web Server iniciando...");
 
   // Inicializar SPIFFS para archivos web separados
+  bool spiffsOk = false;
   if (!SPIFFS.begin(true)) {
     Serial.println("❌ ERROR: Failed to mount SPIFFS - usando HTML embebido");
   } else {
     Serial.println("✅ SPIFFS montado correctamente");
+    spiffsOk = true;
     
-    // Listar archivos disponibles
+    // Listar archivos disponibles con más detalle
     File root = SPIFFS.open("/");
     if (root && root.isDirectory()) {
       File file = root.openNextFile();
       Serial.println("📁 Archivos en SPIFFS:");
+      bool hasFiles = false;
       while (file) {
-        Serial.printf("  %s (%d bytes)\n", file.name(), file.size());
+        hasFiles = true;
+        Serial.printf("  📄 %s (%d bytes)\n", file.name(), file.size());
         file = root.openNextFile();
+      }
+      if (!hasFiles) {
+        Serial.println("⚠️  SPIFFS está vacío - no hay archivos web");
+        Serial.println("💡 Usa 'Upload Filesystem Image' en PlatformIO para subir archivos");
+        spiffsOk = false;
+      }
+    } else {
+      Serial.println("❌ No se puede leer el directorio raíz de SPIFFS");
+      spiffsOk = false;
+    }
+    
+    // Verificar archivos específicos
+    if (spiffsOk) {
+      Serial.println("🔍 Verificando archivos críticos:");
+      
+      if (SPIFFS.exists("/index.html")) {
+        File f = SPIFFS.open("/index.html", "r");
+        Serial.printf("  ✅ index.html (%d bytes)\n", f ? f.size() : 0);
+        if (f) f.close();
+      } else {
+        Serial.println("  ❌ index.html FALTANTE");
+        spiffsOk = false;
+      }
+      
+      if (SPIFFS.exists("/robot-control.js")) {
+        File f = SPIFFS.open("/robot-control.js", "r");
+        Serial.printf("  ✅ robot-control.js (%d bytes)\n", f ? f.size() : 0);
+        if (f) f.close();
+      } else {
+        Serial.println("  ❌ robot-control.js FALTANTE");
+        spiffsOk = false;
+      }
+      
+      if (SPIFFS.exists("/style.css")) {
+        File f = SPIFFS.open("/style.css", "r");
+        Serial.printf("  ✅ style.css (%d bytes)\n", f ? f.size() : 0);
+        if (f) f.close();
+      } else {
+        Serial.println("  ❌ style.css FALTANTE");
       }
     }
   }
@@ -348,22 +484,37 @@ void setup() {
   // Inicializar cámara
   setupCamera();
 
-  // Configurar servidor web con archivos separados
+  // Configurar servidor web con timeouts más cortos
   server.on("/cmd", HTTP_GET, handleCmd);
   server.on("/", handleRoot);
   server.on("/stream", handleStream);
-  server.on("/style.css", handleCSS);           // CSS desde SPIFFS
-  server.on("/robot-control.js", handleJS);    // JavaScript desde SPIFFS
+  server.on("/style.css", handleCSS);
+  server.on("/robot-control.js", handleJS);
   
+  // Configurar timeout del servidor (si está disponible)
   server.begin();
   
   Serial.println("🌐 Servidor web iniciado con archivos separados");
-  Serial.println("📂 Archivos disponibles:");
-  Serial.printf("- 🏠 HTML: http://%s/\n", WiFi.softAPIP().toString().c_str());
-  Serial.printf("- 🎨 CSS: http://%s/style.css\n", WiFi.softAPIP().toString().c_str());
-  Serial.printf("- ⚡ JS: http://%s/robot-control.js\n", WiFi.softAPIP().toString().c_str());
+  Serial.println("📂 Estado del sistema:");
+  Serial.printf("- 🏠 HTML: http://%s/ %s\n", 
+                WiFi.softAPIP().toString().c_str(), 
+                spiffsOk ? "(SPIFFS)" : "(FALLBACK)");
+  Serial.printf("- 🎨 CSS: http://%s/style.css %s\n", 
+                WiFi.softAPIP().toString().c_str(), 
+                SPIFFS.exists("/style.css") ? "(SPIFFS)" : "(404)");
+  Serial.printf("- ⚡ JS: http://%s/robot-control.js %s\n", 
+                WiFi.softAPIP().toString().c_str(), 
+                SPIFFS.exists("/robot-control.js") ? "(SPIFFS)" : "(404)");
   Serial.printf("- 📹 Stream: http://%s/stream\n", WiFi.softAPIP().toString().c_str());
   Serial.printf("- 🔧 API: http://%s/cmd?cmd=PING\n", WiFi.softAPIP().toString().c_str());
+  
+  if (!spiffsOk) {
+    Serial.println("⚠️  ADVERTENCIA: SPIFFS no está funcionando correctamente");
+    Serial.println("💡 Para solucionar:");
+    Serial.println("   1. Verifica que los archivos estén en la carpeta 'data/'");
+    Serial.println("   2. Usa 'Upload Filesystem Image' en PlatformIO");
+    Serial.println("   3. Luego 'Upload' para el firmware");
+  }
 }
 
 void loop() {
@@ -375,25 +526,27 @@ void loop() {
                   ESP.getFreeHeap(), WiFi.softAPgetStationNum());
   }
   
+  // Procesar cliente web con mayor frecuencia
   server.handleClient();
   
   // Manejar conexiones TCP entrantes del ESP32-auto
   if (!tcpClientFromAuto || !tcpClientFromAuto.connected()) {
     tcpClientFromAuto = tcpServer.available();
     if (tcpClientFromAuto) {
-      Serial.println("ESP32-auto conectado desde: " + tcpClientFromAuto.remoteIP().toString());
+      Serial.println("🤖 ESP32-auto conectado desde: " + tcpClientFromAuto.remoteIP().toString());
       tcpClientFromAuto.println("ESP32-CAM ready");
     }
   }
   
-  // Leer datos del auto si está conectado (aunque no esperamos comandos del auto)
+  // Leer datos del auto si está conectado
   if (tcpClientFromAuto && tcpClientFromAuto.connected() && tcpClientFromAuto.available()) {
     String message = tcpClientFromAuto.readStringUntil('\n');
     message.trim();
     if (message.length() > 0) {
-      Serial.println("Mensaje del auto: " + message);
+      Serial.println("📨 Mensaje del auto: " + message);
     }
   }
   
-  delay(10);
+  // Delay más corto para mayor responsividad
+  delay(5); // Reducido de 10 a 5
 }

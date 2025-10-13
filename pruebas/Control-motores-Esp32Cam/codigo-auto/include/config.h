@@ -26,7 +26,7 @@
 #endif
 
 #ifndef SERVER_PORT
-#define SERVER_PORT    12345  // Puerto donde el ESP32-CAM escucha
+#define SERVER_PORT    12345  // Puerto correcto donde el ESP32-CAM escucha (era 8080)
 #endif
 
 // Serial / diagnóstico

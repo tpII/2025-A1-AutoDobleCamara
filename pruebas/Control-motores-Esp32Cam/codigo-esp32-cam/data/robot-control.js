@@ -3,9 +3,16 @@ console.log('🤖 ESP32 Robot Control Loading from SPIFFS...');
 
 const img = document.getElementById('stream');
 const status = document.getElementById('status');
+const speedSlider = document.getElementById('speedSlider');
+const currentSpeedSpan = document.getElementById('currentSpeed');
+
+let currentSpeed = 200; // Velocidad global
+let commandQueue = 0; // Contador de comandos pendientes
 
 // === FUNCIONES DE ESTADO Y LOGGING ===
 function appendStatus(s, type = 'info') { 
+  if (!status) return; // Protección si el elemento no existe
+  
   const timestamp = new Date().toLocaleTimeString();
   const className = type === 'error' ? 'status-error' : 
                    type === 'success' ? 'status-good' : 
@@ -21,9 +28,16 @@ function appendStatus(s, type = 'info') {
 }
 
 function getTarget() {
-  const ip = document.getElementById('robot_ip').value.trim();
-  const port = document.getElementById('robot_port').value.trim();
+  const ip = document.getElementById('robot_ip')?.value.trim() || '';
+  const port = document.getElementById('robot_port')?.value.trim() || '';
   return { ip: ip, port: port };
+}
+
+// === FUNCIONES DE CONTROL DE STREAM ===
+function startStream() {
+  if (!img) return;
+  img.src = '/stream?t=' + Date.now();
+  appendStatus('Starting video stream...', 'info');
 }
 
 // === FUNCIONES DE COMUNICACIÓN ===
@@ -44,64 +58,137 @@ function testConnection() {
     });
 }
 
+// Nueva función para actualizar velocidad
+function updateSpeed(newSpeed) {
+    currentSpeed = parseInt(newSpeed);
+    currentSpeedSpan.textContent = newSpeed;
+    appendStatus(`🎛️ Global speed set to: ${newSpeed}`, 'info');
+}
+
+// Función mejorada sendCmd con velocidad dinámica
 function sendCmd(cmd) {
-  // Debug: log inmediato cuando se llama la función
-  console.log(`🔧 sendCmd called with: ${cmd}`);
-  appendStatus(`🔧 Function called: sendCmd('${cmd}')`, 'info');
-  
-  const tgt = getTarget();
-  let url = '/cmd?cmd=' + encodeURIComponent(cmd);
-  if (tgt.ip) url += '&ip=' + encodeURIComponent(tgt.ip);
-  if (tgt.port) url += '&port=' + encodeURIComponent(tgt.port);
-  
-  console.log(`🌐 Sending request to: ${url}`);
-  appendStatus(`🌐 Sending: ${cmd}`, 'info');
-  
-  fetch(url)
-  .then(response => {
-    console.log(`📡 Response received: ${response.status} ${response.statusText}`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    return response.text();
-  })
-  .then(text => {
-    console.log(`✅ Response text: ${text}`);
-    appendStatus(`✓ ${cmd} -> ${text}`, 'success');
-  })
-  .catch(error => {
-    console.error(`❌ Command failed: ${error}`);
-    appendStatus(`✗ ${cmd} -> ${error.message}`, 'error');
+    console.log(`🔧 sendCmd called with: ${cmd}`);
     
-    // Auto-retry para comandos críticos
-    if (cmd === 'STOP') {
-      appendStatus('STOP failed - retrying...', 'warning');
-      setTimeout(() => sendCmd('STOP'), 1000);
+    // Aplicar velocidad global a comandos ALL
+    let finalCmd = cmd;
+    const cmdParts = cmd.split(' ');
+    if (cmdParts[0] === 'ALL' && cmdParts.length === 3) {
+        finalCmd = `ALL ${cmdParts[1]} ${currentSpeed}`;
+        appendStatus(`🎛️ Adjusted command: ${finalCmd}`, 'info');
+    } else {
+        appendStatus(`🔧 Function called: sendCmd('${cmd}')`, 'info');
     }
-  });
+    
+    const tgt = getTarget();
+    let url = '/cmd?cmd=' + encodeURIComponent(finalCmd);
+    if (tgt.ip) url += '&ip=' + encodeURIComponent(tgt.ip);
+    if (tgt.port) url += '&port=' + encodeURIComponent(tgt.port);
+    
+    console.log(`🌐 Sending request to: ${url}`);
+    appendStatus(`🌐 Sending: ${finalCmd}`, 'info');
+    
+    // Incrementar contador de comandos pendientes
+    commandQueue++;
+    updateCommandQueueStatus();
+    
+    // Añadir AbortController para timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+    
+    fetch(url, {
+        signal: controller.signal,
+        method: 'GET',
+        headers: {
+            'Cache-Control': 'no-cache',
+            'Connection': 'close'
+        }
+    })
+    .then(response => {
+        clearTimeout(timeoutId);
+        commandQueue = Math.max(0, commandQueue - 1);
+        updateCommandQueueStatus();
+        
+        console.log(`📡 Response received: ${response.status} ${response.statusText}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.text();
+    })
+    .then(text => {
+        console.log(`✅ Response text: ${text}`);
+        appendStatus(`✓ ${finalCmd} -> ${text}`, 'success');
+    })
+    .catch(error => {
+        clearTimeout(timeoutId);
+        commandQueue = Math.max(0, commandQueue - 1);
+        updateCommandQueueStatus();
+        
+        console.error(`❌ Command failed: ${error}`);
+        
+        if (error.name === 'AbortError') {
+            appendStatus(`⏱️ ${finalCmd} -> TIMEOUT (5s)`, 'error');
+            appendStatus('💡 Try restarting stream if commands get stuck', 'warning');
+        } else {
+            appendStatus(`✗ ${finalCmd} -> ${error.message}`, 'error');
+        }
+        
+        // Auto-retry para comandos críticos
+        if (cmd === 'STOP') {
+            appendStatus('STOP failed - retrying...', 'warning');
+            setTimeout(() => sendCmd('STOP'), 1000);
+        }
+    });
 }
 
-// === FUNCIONES DE CONTROL DE STREAM ===
-function startStream() {
-  img.src = '/stream?t=' + Date.now();
-  appendStatus('Starting video stream...', 'info');
+// Nueva función para mostrar estado de la cola de comandos
+function updateCommandQueueStatus() {
+    if (commandQueue > 0) {
+        appendStatus(`⏳ Commands in queue: ${commandQueue}`, 'warning');
+    }
+    
+    // Si hay muchos comandos encolados, sugerir reiniciar stream
+    if (commandQueue > 3) {
+        appendStatus('⚠️ Too many pending commands - consider restarting stream', 'error');
+    }
 }
 
+// Función mejorada para reiniciar stream
 function restartStream() {
-  appendStatus('Restarting video stream...', 'warning');
+  appendStatus('🔄 Restarting video stream...', 'warning');
+  appendStatus(`📊 Clearing ${commandQueue} pending commands`, 'info');
+  
+  // Reset contador de comandos
+  commandQueue = 0;
+  updateCommandQueueStatus();
+  
   img.src = '';
-  setTimeout(startStream, 500);
+  
+  // Delay más largo para asegurar que la conexión se cierre
+  setTimeout(() => {
+    startStream();
+    appendStatus('✅ Stream restarted - commands should work now', 'success');
+  }, 1000); // Incrementado de 500ms a 1000ms
 }
 
-// Event listeners para el stream
+// Event listeners mejorados para el stream
 img.onload = function() { 
-  appendStatus('Video stream connected', 'success'); 
+  appendStatus('📹 Video stream connected', 'success'); 
 };
 
 img.onerror = function() { 
-  appendStatus('Video stream failed - retrying in 3s...', 'error'); 
-  setTimeout(startStream, 3000); 
+  appendStatus('📹 Video stream failed - retrying in 3s...', 'error'); 
+  setTimeout(() => {
+    startStream();
+  }, 3000); 
 };
+
+// Detectar si el stream se desconecta
+let streamCheckInterval = setInterval(() => {
+  if (img.complete && img.naturalHeight === 0) {
+    appendStatus('📹 Stream disconnected - auto-restarting...', 'warning');
+    restartStream();
+  }
+}, 10000); // Check cada 10 segundos
 
 // === CONTROL DE TECLADO ===
 function setupKeyboardControl() {
@@ -157,17 +244,27 @@ function initializeApp() {
   
   // Test inicial de conexión y stream
   setTimeout(() => {
+    appendStatus('🤖 ESP32 Robot Control System ready', 'success');
+    appendStatus('🎛️ Speed control enabled', 'info');
+    appendStatus('📊 Command queue monitoring active', 'info');
+    updateSpeed(speedSlider.value);
     testConnection();
     startStream();
     setupKeyboardControl();
   }, 500);
   
-  // Test periódico de conectividad cada 10 segundos
+  // Test periódico de conectividad cada 15 segundos (reducido de 10s)
   setInterval(() => {
-    fetch('/cmd?cmd=PING', { timeout: 2000 })
+    // Solo hacer ping si no hay comandos pendientes
+    if (commandQueue === 0) {
+      fetch('/cmd?cmd=PING', { 
+        signal: AbortSignal.timeout(2000),
+        headers: { 'Cache-Control': 'no-cache' }
+      })
       .then(r => r.ok ? null : appendStatus('ESP32-CAM not responding', 'warning'))
       .catch(() => appendStatus('ESP32-CAM disconnected', 'error'));
-  }, 10000);
+    }
+  }, 15000);
   
   // Heartbeat visual cada 30 segundos
   setInterval(() => {
@@ -189,6 +286,8 @@ if (document.readyState === 'loading') {
 window.sendCmd = sendCmd;
 window.testConnection = testConnection;
 window.restartStream = restartStream;
+window.updateSpeed = updateSpeed;
+window.startStream = startStream;
 
 // Debug global
 window.robotDebug = {
@@ -200,4 +299,4 @@ window.robotDebug = {
 };
 
 console.log('✅ ESP32 Robot Control loaded successfully from SPIFFS!');
-console.log('🔧 Debug commands available: robotDebug.sendTest(), robotDebug.sendStop(), etc.');
+console.log('🔄 Overriding inline functions with full functionality');

@@ -73,29 +73,29 @@ void setup() {
 }
 
 void loop() {
-    // --- manejo Serial (eco / backspace) ---
-    // while (Serial.available()) {
-    //     char c = Serial.read();
-    //     if (c == '\r') continue;
-    //     if (c == '\n') {
-    //         Serial.println();
-    //         processLine(inputBuffer);
-    //         inputBuffer = "";
-    //         continue;
-    //     }
-    //     if (c == 8 || c == 127) { // BS / DEL
-    //         if (inputBuffer.length() > 0) {
-    //             inputBuffer.remove(inputBuffer.length() - 1, 1);
-    //             Serial.print("\b \b");
-    //         }
-    //         continue;
-    //     }
-    //     if (c >= 32 && c <= 126) {
-    //         inputBuffer += c;
-    //         Serial.print(c);
-    //         if (inputBuffer.length() > NETBUF_MAXLEN) inputBuffer = inputBuffer.substring(inputBuffer.length() - NETBUF_MAXLEN);
-    //     }
-    // }
+    --- manejo Serial (eco / backspace) ---
+    while (Serial.available()) {
+        char c = Serial.read();
+        if (c == '\r') continue;
+        if (c == '\n') {
+            Serial.println();
+            processLine(inputBuffer);
+            inputBuffer = "";
+            continue;
+        }
+        if (c == 8 || c == 127) { // BS / DEL
+            if (inputBuffer.length() > 0) {
+                inputBuffer.remove(inputBuffer.length() - 1, 1);
+                Serial.print("\b \b");
+            }
+            continue;
+        }
+        if (c >= 32 && c <= 126) {
+            inputBuffer += c;
+            Serial.print(c);
+            if (inputBuffer.length() > NETBUF_MAXLEN) inputBuffer = inputBuffer.substring(inputBuffer.length() - NETBUF_MAXLEN);
+        }
+    }
 
     // --- manejo red ---
     commNetLoop();
