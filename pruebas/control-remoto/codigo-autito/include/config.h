@@ -14,19 +14,32 @@
 
 // Red / servidor
 #ifndef WIFI_SSID
-#define WIFI_SSID      "ChiquiBoton"
+#define WIFI_SSID      "access-point"
 #endif
 
 #ifndef WIFI_PASS
-#define WIFI_PASS      "veronismo"
+#define WIFI_PASS      "12345678"
 #endif
 
 #ifndef SERVER_IP
-#define SERVER_IP      "192.168.1.100"  // IP o hostname del servidor TCP
+#define SERVER_IP      "10.42.0.1"  // IP o hostname del servidor TCP
 #endif
 
 #ifndef SERVER_PORT
 #define SERVER_PORT    12345
+#endif
+
+// IP estática del ESP32 (opcional - deja en blanco para DHCP)
+#ifndef ESP_STATIC_IP
+#define ESP_STATIC_IP  "10.42.0.100"  // IP fija del ESP32
+#endif
+
+#ifndef ESP_GATEWAY
+#define ESP_GATEWAY    "10.42.0.1"    // Gateway 
+#endif
+
+#ifndef ESP_SUBNET
+#define ESP_SUBNET     "255.255.255.0"
 #endif
 
 // Serial / diagnóstico
@@ -36,7 +49,7 @@
 
 // Camera defaults (OV2640 wiring - adaptado a tu conexión)
 #ifndef CAMERA_PIN_PWDN
-#define CAMERA_PIN_PWDN     -1
+#define CAMERA_PIN_PWDN     32
 #endif
 #ifndef CAMERA_PIN_RESET
 #define CAMERA_PIN_RESET    -1
