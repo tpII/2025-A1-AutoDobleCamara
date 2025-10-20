@@ -1,0 +1,61 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    font-family: Arial, sans-serif;
+}
+
+.camera-view {
+    margin-bottom: 20px;
+}
+
+#camera-feed {
+    max-width: 640px;
+    width: 100%;
+    border: 2px solid #333;
+    border-radius: 8px;
+}
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.middle-row {
+    display: flex;
+    gap: 10px;
+}
+
+button {
+    width: 60px;
+    height: 60px;
+    font-size: 24px;
+    border: 2px solid #333;
+    border-radius: 8px;
+    background-color: #f0f0f0;
+    cursor: pointer;
+}
+
+button:active {
+    background-color: #ddd;
+}
+
+.speed-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#speed {
+    width: 200px;
+}

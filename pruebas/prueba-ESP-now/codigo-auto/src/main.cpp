@@ -69,14 +69,14 @@ void setup() {
     Serial.println(SERIAL_BAUD);
     while (!Serial && millis() < 5000) ; // más tiempo para abrir monitor serie
     Serial.println("Serial ready");
-    Serial.println("Iniciando: software-auto");
+    Serial.println("Iniciando: software-auto con ESP-NOW");
     delay(100);
 
     motorInit();
     Serial.println("motorInit: OK");
     delay(100);
 
-    commNetBegin(WIFI_SSID, WIFI_PASS, SERVER_IP, SERVER_PORT);
+    commNetBegin();  // Inicializar ESP-NOW
 }
 
 void loop() {
