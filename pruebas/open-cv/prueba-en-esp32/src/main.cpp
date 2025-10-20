@@ -1,4 +1,5 @@
 #include <WiFi.h>
+#include <Arduino.h>
 #include <WebServer.h>
 #include "esp_camera.h"
 #include "color_detector.h"
@@ -6,12 +7,12 @@
 const float OBJETO_ANCHO_REAL_CM = 5.0;
 const float FOCAL_LENGTH = 200.0;
 
-#define CAMERA_FRAME_SIZE FRAMESIZE_SVGA
-#define JPEG_QUALITY 12
+#define CAMERA_FRAME_SIZE FRAMESIZE_SVGA  // SVGA (800x600) - HD es demasiado grande y causa fallos
+#define JPEG_QUALITY 10  // Reducido de 12 a 10 (menor = mejor calidad, menos compresión)
 #define XCLK_FREQ_HZ 20000000
 
-const char* ssid = "Personal-140-2.4GHz";
-const char* password = "00417225972";
+const char* ssid = "dlink";
+const char* password = "0142202949";
 
 WebServer server(80);
 
@@ -96,30 +97,57 @@ void setupCamera() {
     }
     
     if (s) {
-      s->set_brightness(s, 0);
-      s->set_contrast(s, 0);
-      s->set_saturation(s, 0);
-      s->set_special_effect(s, 0);
-      s->set_whitebal(s, 1);
-      s->set_awb_gain(s, 1);
-      s->set_wb_mode(s, 0);
-      s->set_exposure_ctrl(s, 1);
-      s->set_aec2(s, 0);
-      s->set_gain_ctrl(s, 1);
-      s->set_agc_gain(s, 0);
-      s->set_bpc(s, 0);
-      s->set_wpc(s, 0);
-      s->set_raw_gma(s, 1);
-      s->set_lenc(s, 1);
-      s->set_hmirror(s, 0);
-      s->set_vflip(s, 0);
-      s->set_dcw(s, 1);
-      s->set_colorbar(s, 0);
+      // ⭐ CONFIGURACIÓN EXPERIMENTAL - DESACTIVANDO AWB ⭐
+      
+      // Ajustes de imagen - máximos para compensar el tinte
+      s->set_brightness(s, 0);      // Brillo neutro
+      s->set_contrast(s, 0);        // Contraste neutro
+      s->set_saturation(s, -2);     // Saturación REDUCIDA para minimizar tinte magenta
+      s->set_sharpness(s, 0);       // Nitidez neutra
+      s->set_special_effect(s, 0);  // Sin efectos especiales
+      
+      // Balance de blancos - DESACTIVADO para evitar tinte magenta
+      s->set_whitebal(s, 0);        // DESACTIVAR balance de blancos automático
+      s->set_awb_gain(s, 0);        // DESACTIVAR ganancia AWB
+      s->set_wb_mode(s, 0);         // Sin modo específico
+      
+      // Control de exposición - Evita sobreexposición del amarillo
+      s->set_exposure_ctrl(s, 1);   // Activar control automático de exposición
+      s->set_aec2(s, 1);            // Activar AEC DSP
+      s->set_ae_level(s, 0);        // Nivel de exposición NORMAL (corregido)
+      s->set_aec_value(s, 300);     // Valor de exposición estándar
+      
+      // Control de ganancia - Limitar para evitar ruido en amarillo
+      s->set_gain_ctrl(s, 1);       // Activar control automático de ganancia
+      s->set_agc_gain(s, 0);        // Ganancia AGC base
+      s->set_gainceiling(s, (gainceiling_t)2);  // Límite de ganancia moderado
+      
+      // Correcciones de pixel y lente
+      s->set_bpc(s, 1);             // Activar corrección de pixel negro
+      s->set_wpc(s, 1);             // Activar corrección de pixel blanco
+      s->set_raw_gma(s, 1);         // Gamma correction activada
+      s->set_lenc(s, 1);            // Corrección de lente activada
+      
+      // Orientación
+      s->set_hmirror(s, 0);         // Sin espejo horizontal
+      s->set_vflip(s, 0);           // Sin volteo vertical
+      
+      // Otros ajustes
+      s->set_dcw(s, 1);             // Downsize enable
+      s->set_colorbar(s, 0);        // Sin barra de colores de prueba
       
       s->set_framesize(s, CAMERA_FRAME_SIZE);
       s->set_quality(s, JPEG_QUALITY);
       
-      Serial.println("Configuración avanzada del sensor aplicada");
+      Serial.println("✅ Configuración avanzada del sensor aplicada");
+      Serial.println("🟡 === CONFIGURACIÓN EXPERIMENTAL ===");
+      Serial.println("   - Brillo: 0 (neutro)");
+      Serial.println("   - Contraste: 0 (neutro)");
+      Serial.println("   - Saturación: -2 (reducida para minimizar tinte)");
+      Serial.println("   - Balance de blancos: DESACTIVADO");
+      Serial.println("   - AWB: DESACTIVADO");
+      Serial.println("   - Rango de detección: MUY AMPLIO (incluye blanco)");
+      Serial.println("🟡 ====================================");
     }
     
     camera_fb_t *fb = esp_camera_fb_get();
@@ -183,7 +211,7 @@ void handleDetect() {
   Serial.printf("📸 Frame RGB565 capturado: %dx%d, %u bytes\n", fb->width, fb->height, fb->len);
   
   uint16_t* rgb565_frame = (uint16_t*)fb->buf;
-  DetectionResult result = detect_colored_object(rgb565_frame, fb->width, fb->height, Colors::RED);
+  DetectionResult result = detect_colored_object(rgb565_frame, fb->width, fb->height, Colors::YELLOW);
   
   String json = "{";
   json += "\"found\":" + String(result.found ? "true" : "false") + ",";
@@ -220,96 +248,210 @@ void handleRoot() {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 CAM</title>
+    <title>ESP32 CAM - Detector Amarillo</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             background: #000;
-            color: #0f0;
-            font-family: 'Courier New', monospace;
+            color: #fff;
+            font-family: 'Arial', sans-serif;
             overflow: hidden;
         }
-        .info {
+        
+        /* Banner superior con indicador de detección */
+        .header {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 10px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px 20px;
             z-index: 10;
-            border-bottom: 2px solid #0f0;
+            border-bottom: 3px solid #333;
+            transition: all 0.3s ease;
         }
-        .distance {
-            font-size: 32px;
+        
+        .header.detected {
+            background: rgba(0, 200, 0, 0.95);
+            border-bottom: 3px solid #0f0;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.5);
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 10px;
+        }
+        
+        .status-led {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #f00;
+            box-shadow: 0 0 10px #f00;
+            transition: all 0.3s ease;
+        }
+        
+        .status-led.active {
+            background: #0f0;
+            box-shadow: 0 0 30px #0f0;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+        
+        .status-text {
+            font-size: 24px;
             font-weight: bold;
-            color: #0f0;
+            color: #f00;
+            transition: all 0.3s ease;
         }
-        .status {
+        
+        .status-text.active {
+            color: #fff;
+            text-shadow: 0 0 10px #0f0;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
             font-size: 16px;
-            color: #888;
         }
-        .found { color: #0f0; }
-        .not-found { color: #f00; }
+        
+        .info-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 8px 12px;
+            border-radius: 5px;
+        }
+        
+        .info-label {
+            color: #aaa;
+            font-size: 12px;
+            margin-bottom: 3px;
+        }
+        
+        .info-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #fff;
+        }
+        
+        .header.detected .info-value {
+            color: #fff;
+        }
+        
         #stream {
             position: fixed;
-            top: 62px;
+            top: 150px;
             left: 0;
             width: 100vw;
-            height: calc(100vh - 62px);
+            height: calc(100vh - 150px);
             object-fit: contain;
             background: #000;
+        }
+        
+        .detection-overlay {
+            position: fixed;
+            top: 150px;
+            left: 0;
+            width: 100vw;
+            height: calc(100vh - 150px);
+            pointer-events: none;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            font-weight: bold;
+            color: #0f0;
+            text-shadow: 0 0 20px #0f0, 0 0 40px #0f0;
+            z-index: 5;
+        }
+        
+        .detection-overlay.active {
+            display: flex;
         }
     </style>
 </head>
 <body>
-    <div class="info">
-        <div>
-            <span class="distance" id="distance">--- cm</span>
-            <span class="status" id="status">●</span>
+    <div class="header" id="header">
+        <div class="status-indicator">
+            <div class="status-led" id="led"></div>
+            <div class="status-text" id="statusText">🔍 BUSCANDO OBJETO AMARILLO...</div>
         </div>
-        <div style="font-size: 14px; color: #666;">
-            <span id="pos">x:- y:-</span> | 
-            <span id="size">-×-</span>
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="info-label">DISTANCIA</div>
+                <div class="info-value" id="distance">---</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">POSICIÓN</div>
+                <div class="info-value" id="pos">---</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">TAMAÑO</div>
+                <div class="info-value" id="size">---</div>
+            </div>
         </div>
+    </div>
+    
+    <div class="detection-overlay" id="overlay">
+        🟡 ¡AMARILLO DETECTADO! ✓
     </div>
     
     <img id="stream" />
 
     <script>
         const stream = document.getElementById('stream');
+        const header = document.getElementById('header');
+        const led = document.getElementById('led');
+        const statusText = document.getElementById('statusText');
         const distanceEl = document.getElementById('distance');
-        const statusEl = document.getElementById('status');
         const posEl = document.getElementById('pos');
         const sizeEl = document.getElementById('size');
+        const overlay = document.getElementById('overlay');
         
         // Iniciar stream
         stream.src = '/stream?t=' + Date.now();
         
-        // Actualizar detección cada 500ms
+        // Actualizar detección cada 400ms
         setInterval(() => {
             fetch('/detect')
                 .then(r => r.json())
                 .then(d => {
                     if (d.found) {
+                        // ✅ OBJETO DETECTADO
+                        header.classList.add('detected');
+                        led.classList.add('active');
+                        statusText.classList.add('active');
+                        overlay.classList.add('active');
+                        
+                        statusText.textContent = '🟡 ¡AMARILLO DETECTADO!';
                         distanceEl.textContent = d.distance_cm.toFixed(1) + ' cm';
-                        statusEl.textContent = '●';
-                        statusEl.className = 'status found';
                         posEl.textContent = `x:${d.x} y:${d.y}`;
-                        sizeEl.textContent = `${d.width}×${d.height}`;
+                        sizeEl.textContent = `${d.width}×${d.height}px`;
+                        
+                        // Sonido opcional (descomentar si quieres)
+                        // new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBCyAzPLZiTYIG2m98OScTgwOUKfk77RiGwY7k9nx0H4qBSl+zPDcjj4KE12y6OysVxQJSKDh8bllHwQuf9Dy1YU3Bxhlu+7qn1APDkyg4+6')).play();
                     } else {
-                        distanceEl.textContent = '--- cm';
-                        statusEl.textContent = '●';
-                        statusEl.className = 'status not-found';
-                        posEl.textContent = 'x:- y:-';
-                        sizeEl.textContent = '-×-';
+                        // ❌ NO DETECTADO
+                        header.classList.remove('detected');
+                        led.classList.remove('active');
+                        statusText.classList.remove('active');
+                        overlay.classList.remove('active');
+                        
+                        statusText.textContent = '🔍 BUSCANDO OBJETO AMARILLO...';
+                        distanceEl.textContent = '---';
+                        posEl.textContent = '---';
+                        sizeEl.textContent = '---';
                     }
                 })
-                .catch(e => console.log(e));
-        }, 500);
+                .catch(e => console.log('Error:', e));
+        }, 400);
         
         // Reiniciar stream si hay error
         stream.onerror = () => {

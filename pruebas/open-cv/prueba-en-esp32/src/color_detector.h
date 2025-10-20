@@ -3,6 +3,23 @@
 
 #include <Arduino.h>
 
+/*
+ * 🟡 DETECTOR DE COLOR AMARILLO - OPTIMIZADO
+ * 
+ * Configuración de cámara en main.cpp:
+ * - Saturación: +3 (MUY ALTA)
+ * - Contraste: +2 (ALTO)
+ * - Brillo: 0 (neutro)
+ * - Balance de blancos: SUNNY (modo 1)
+ * - Exposición: -1 (reducida)
+ * 
+ * Ajustes para diferentes condiciones:
+ * - Mucha luz / exterior: usar YELLOW_BRIGHT
+ * - Luz normal / interior: usar YELLOW (por defecto)
+ * - Poca luz / sombra: usar YELLOW_DARK
+ * - Muy poca luz: cambiar wb_mode a 3 (Office) o 4 (Home)
+ */
+
 // Estructura para almacenar rangos de color en RGB565
 struct ColorRange {
     uint16_t r_min, r_max;
@@ -71,7 +88,8 @@ DetectionResult detect_colored_object(uint16_t* frame, int width, int height, co
     }
     
     // Si encontramos suficientes pixels (filtro de ruido)
-    if (count > 50) {  // Ajustar este umbral según necesidad
+    // Umbral MÍNIMO para máxima sensibilidad
+    if (count > 10) {  // Umbral muy bajo para capturar cualquier cosa
         result.found = true;
         result.x_center = x_sum / count;
         result.y_center = y_sum / count;
@@ -90,22 +108,42 @@ float calculate_distance(int pixel_width, float real_width_cm, float focal_lengt
     return (real_width_cm * focal_length) / pixel_width;
 }
 
-// Predefinidos: Colores comunes
+// Predefinidos: Colores comunes (optimizados para cámara con saturación +2)
 namespace Colors {
-    // Rojo (para objetos rojos brillantes)
-    const ColorRange RED = {150, 255, 0, 100, 0, 100};
+    // Rojo (para objetos rojos brillantes) - Ajustado para mejor detección
+    const ColorRange RED = {140, 255, 0, 90, 0, 90};
     
-    // Verde
-    const ColorRange GREEN = {0, 100, 100, 255, 0, 100};
+    // Verde - Ajustado para colores más vivos
+    const ColorRange GREEN = {0, 90, 120, 255, 0, 90};
     
-    // Azul
-    const ColorRange BLUE = {0, 100, 0, 100, 150, 255};
+    // Azul - Ajustado para mejor detección
+    const ColorRange BLUE = {0, 90, 0, 120, 140, 255};
     
-    // Amarillo
-    const ColorRange YELLOW = {150, 255, 150, 255, 0, 100};
+    // 🟡 AMARILLO - RANGO EXTREMADAMENTE AMPLIO
+    // Con el tinte magenta de la cámara, el amarillo se ve blanco/rosa/magenta claro
+    // Este rango captura prácticamente cualquier color claro incluyendo blanco
+    const ColorRange YELLOW = {80, 255, 80, 255, 80, 255};
     
-    // Naranja
-    const ColorRange ORANGE = {200, 255, 80, 150, 0, 80};
+    // Variante: Amarillo brillante (para objetos muy iluminados)
+    const ColorRange YELLOW_BRIGHT = {180, 255, 180, 255, 0, 90};
+    
+    // Variante: Amarillo oscuro/oro (para sombras o amarillo apagado)
+    const ColorRange YELLOW_DARK = {100, 180, 100, 180, 0, 100};
+    
+    // Naranja - Mejorado para distinción de rojo
+    const ColorRange ORANGE = {200, 255, 100, 180, 0, 70};
+    
+    // Cian (nuevo) - Útil para detección
+    const ColorRange CYAN = {0, 80, 200, 255, 180, 255};
+    
+    // Magenta (nuevo) - Útil para detección
+    const ColorRange MAGENTA = {180, 255, 0, 80, 180, 255};
+    
+    // Blanco - Para objetos blancos o muy claros
+    const ColorRange WHITE = {200, 255, 200, 255, 200, 255};
+    
+    // Negro - Para objetos oscuros
+    const ColorRange BLACK = {0, 50, 0, 50, 0, 50};
 }
 
 #endif
