@@ -10,48 +10,57 @@
 // Proyecto headers
 #include "config.h"
 #include "CameraVision.h"
+#include "Network.h"
 
 static const char *TAG = "MAIN";
 
 // Objetos globales
 CameraVision cameraVision;
+NetworkManager networkManager;
 
 extern "C" void app_main(void)
 {
     ESP_LOGI(TAG, "\n=== Iniciando sistema ===");
     
-    // 1. Inicializar NVS (necesario para WiFi y configuración)
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
-    ESP_LOGI(TAG, "NVS inicializado");
-    
-    // 2. Esperar un poco para estabilización
+    // 1. Esperar un poco para estabilización
     vTaskDelay(pdMS_TO_TICKS(1000));
     
-    // 3. Inicializar cámara con OpenCV
+    // 2. Inicializar cámara con OpenCV
     if (cameraVision.setup()) {
-        ESP_LOGI(TAG, "Cámara OK");
+        ESP_LOGI(TAG, "✓ Cámara OK");
         
-        // Configurar rango de color para detección
+        // Hacer disponible globalmente para Network
+        g_cameraVision = &cameraVision;
+        
+        // Configurar rango de color para detección (verde)
         ColorRange rango;
         rango.r_min = 0; rango.r_max = 90;
         rango.g_min = 120; rango.g_max = 255;
         rango.b_min = 0; rango.b_max = 90;
         cameraVision.setColorRange(rango);
-        ESP_LOGI(TAG, "Rango de color configurado (verde)");
+        ESP_LOGI(TAG, "✓ Rango de color configurado (verde)");
     } else {
-        ESP_LOGE(TAG, "Error al inicializar cámara");
+        ESP_LOGE(TAG, "✗ Error al inicializar cámara");
+    }
+    
+    // 3. Inicializar red y servidor web
+    if (networkManager.setup()) {
+        ESP_LOGI(TAG, "✓ Red y servidor web OK");
+        
+        char ip[16];
+        networkManager.getIP(ip, sizeof(ip));
+        ESP_LOGI(TAG, "📡 Accede a: http://%s", ip);
+    } else {
+        ESP_LOGW(TAG, "⚠️  Red no disponible (continuando solo con cámara)");
     }
     
     ESP_LOGI(TAG, "=== Sistema listo ===\n");
     
     // Loop principal - procesar frames de cámara
+    uint32_t frame_count = 0;
     while(1) {
         cameraVision.run();
+        frame_count++;
         
         // Obtener información de detección
         DetectionResult det = cameraVision.getUltimaDeteccion();
@@ -71,6 +80,6 @@ extern "C" void app_main(void)
             }
         }
         
-        vTaskDelay(pdMS_TO_TICKS(50));  // 20 FPS aprox
+        vTaskDelay(pdMS_TO_TICKS(50));  // ~20 FPS
     }
 }

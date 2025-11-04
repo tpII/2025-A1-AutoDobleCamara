@@ -1,7 +1,7 @@
 idf_component_register(
-    SRCS "main.cpp" "CameraVision.cpp"
+    SRCS "main.cpp" "CameraVision.cpp" "Network.cpp"
     INCLUDE_DIRS "." "./opencv"
-    REQUIRES espressif__esp32-camera nvs_flash
+    REQUIRES espressif__esp32-camera nvs_flash esp_http_server mdns
 )
 
 # Agregar librerías precompiladas de OpenCV
