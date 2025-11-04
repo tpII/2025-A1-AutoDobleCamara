@@ -2,11 +2,70 @@
 #include "config.h"
 #include "CameraVision.h"
 #include "esp_camera.h"
-#include "img_converters.h"  // Para frame2jpg
-#include <ESPmDNS.h>          // Para mDNS en modo cliente
+#include "img_converters.h"
+#include <ESPmDNS.h>
+#include "esp_jpg_decode.h"
 
-// Puntero externo al sistema de visión (se inicializa en main.cpp)
 CameraVision* g_cameraVision = nullptr;
+
+// Variables globales para procesamiento de imagen
+static uint8_t* g_processed_buffer = nullptr;
+static int g_img_width = 0;
+static int g_img_height = 0;
+static const uint8_t* g_jpeg_data = nullptr;
+static size_t g_jpeg_len = 0;
+static size_t g_jpeg_pos = 0;
+
+// Reader callback
+static uint32_t jpg_read(void * arg, size_t index, uint8_t *buf, size_t len) {
+    if (g_jpeg_pos >= g_jpeg_len) return 0;
+    if (g_jpeg_pos + len > g_jpeg_len) {
+        len = g_jpeg_len - g_jpeg_pos;
+    }
+    memcpy(buf, g_jpeg_data + g_jpeg_pos, len);
+    g_jpeg_pos += len;
+    return len;
+}
+
+// Writer callback
+static bool jpg_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t *data) {
+    uint16_t* bmp = (uint16_t*)data;
+    
+    for (uint32_t row = 0; row < h; row++) {
+        for (uint32_t col = 0; col < w; col++) {
+            uint16_t pixel = bmp[row * w + col];
+            
+            // Convertir RGB565 a RGB888
+            uint8_t r = ((pixel >> 11) & 0x1F) * 255 / 31;
+            uint8_t g = ((pixel >> 5) & 0x3F) * 255 / 63;
+            uint8_t b = (pixel & 0x1F) * 255 / 31;
+            
+            // Calcular brillo total
+            int brightness = r + g + b;
+            
+            // Solo procesar píxeles con algo de brillo (no completamente negros)
+            bool es_verde = false;
+            bool es_azul = false;
+            
+            if (brightness > 80) {  // Umbral de brillo mínimo
+                // Verde: G dominante (G > R y G > B)
+                es_verde = (g > r * 1.2 && g > b * 1.2 && g > 40);
+                
+                // Azul: B dominante (B > R y B > G)
+                es_azul = (b > r * 1.2 && b > g * 1.1 && b > 40);
+            }
+            
+            int out_x = x + col;
+            int out_y = y + row;
+            
+            if (out_x < g_img_width && out_y < g_img_height && g_processed_buffer) {
+                g_processed_buffer[out_y * g_img_width + out_x] = (es_verde || es_azul) ? 255 : 0;
+            }
+        }
+    }
+    
+    return true;
+}
 
 /**
  * @brief Inicializa el sistema de red completo
@@ -74,29 +133,52 @@ void NetworkManager::setupWiFiClient() {
     DEBUG_PRINTLN("[NETWORK] Configurando WiFi Client...");
     DEBUG_PRINTLN("[NETWORK] Conectando a: " + String(WIFI_STA_SSID));
     
+    // Desconectar cualquier conexión previa
+    WiFi.disconnect(true);
+    delay(100);
+    
+    // Configurar modo WiFi
     WiFi.mode(WIFI_STA);
+    delay(100);
+    
+    // Iniciar conexión
     WiFi.begin(WIFI_STA_SSID, WIFI_STA_PASSWORD);
     
+    // Esperar conexión con feedback detallado
     unsigned long startTime = millis();
+    int dotCount = 0;
+    
+    DEBUG_PRINT("[NETWORK] Conectando");
     while (WiFi.status() != WL_CONNECTED && (millis() - startTime) < WIFI_CONNECT_TIMEOUT) {
         delay(500);
         DEBUG_PRINT(".");
+        dotCount++;
+        
+        // Mostrar estado cada 5 segundos
+        if (dotCount % 10 == 0) {
+            DEBUG_PRINTLN("");
+            DEBUG_PRINTF("[NETWORK] Tiempo transcurrido: %lu ms, Estado: %d\n", 
+                        millis() - startTime, WiFi.status());
+            DEBUG_PRINT("[NETWORK] Reintentando");
+        }
     }
     DEBUG_PRINTLN("");
     
     if (WiFi.status() == WL_CONNECTED) {
-        DEBUG_PRINTLN("[NETWORK] WiFi conectado exitosamente");
+        DEBUG_PRINTLN("[NETWORK] ✓ WiFi conectado exitosamente");
         DEBUG_PRINTLN("[NETWORK] IP: " + WiFi.localIP().toString());
         DEBUG_PRINTLN("[NETWORK] Gateway: " + WiFi.gatewayIP().toString());
         DEBUG_PRINTLN("[NETWORK] DNS: " + WiFi.dnsIP().toString());
         DEBUG_PRINTLN("[NETWORK] RSSI: " + String(WiFi.RSSI()) + " dBm");
+        DEBUG_PRINTLN("[NETWORK] Canal: " + String(WiFi.channel()));
         
         // Configurar mDNS para acceso fácil por nombre
+        DEBUG_PRINTLN("[NETWORK] Configurando mDNS...");
         if (MDNS.begin("autito-robot")) {
             MDNS.addService("http", "tcp", WEB_SERVER_PORT);
-            DEBUG_PRINTLN("[NETWORK] mDNS iniciado: http://autito-robot.local");
+            DEBUG_PRINTLN("[NETWORK] ✓ mDNS iniciado: http://autito-robot.local");
         } else {
-            DEBUG_PRINTLN("[NETWORK] Error al iniciar mDNS");
+            DEBUG_PRINTLN("[NETWORK] ⚠️ Error al iniciar mDNS");
         }
     } else {
         DEBUG_PRINTLN("[NETWORK] Error al conectar a WiFi");
@@ -171,11 +253,12 @@ void NetworkManager::handleClient() {
     if (request.indexOf(STREAM_PATH) != -1) {
         serveVideoStream(client);
     }
-#ifdef MODO_PRUEBA_SIN_COMPANERO
-    else if (request.indexOf(TEST_CONTROL_PATH) != -1) {
-        serveTestControl(client, request);
+    else if (request.indexOf("/stream_processed") != -1) {
+        serveProcessedStream(client);
     }
-#endif
+    else if (request.indexOf("/shutdown") != -1) {
+        serveShutdown(client);
+    }
     else {
         serveIndexPage(client);
     }
@@ -206,29 +289,58 @@ void NetworkManager::serveIndexPage(WiFiClient& client) {
     client.println("    background: #3498db; color: white; text-decoration: none; ");
     client.println("    border-radius: 5px; font-size: 18px; }");
     client.println("a:hover { background: #2980b9; }");
+    client.println(".shutdown-btn { background: #e74c3c !important; margin-top: 30px; }");
+    client.println(".shutdown-btn:hover { background: #c0392b !important; }");
     client.println("img { max-width: 90%; border: 3px solid #3498db; margin-top: 20px; }");
     client.println("</style></head><body>");
-    client.println("<h1>Autito Robot - Sistema de Vision</h1>");
-    client.println("<p>Firmware ESP32 con Deteccion de Color y Sistema de Veto Distribuido</p>");
+    client.println("<h1>🎥 Sistema de Detección de Objetos</h1>");
+    client.println("<p>ESP32-CAM con Detección de Color en Tiempo Real</p>");
     
     // Enlace al stream
-    client.println("<a href='" + String(STREAM_PATH) + "' target='_blank'>Ver Stream de Video</a>");
+    client.println("<a href='" + String(STREAM_PATH) + "' target='_blank'>Ver Stream Original</a>");
+    client.println("<a href='/stream_processed' target='_blank'>Ver Stream Procesado</a>");
     
-#ifdef MODO_PRUEBA_SIN_COMPANERO
-    client.println("<h2>Modo Prueba Activado</h2>");
-    client.println("<p>Controla el autito sin la camara fija:</p>");
-    client.println("<a href='" + String(TEST_CONTROL_PATH) + "?cmd=1&riesgo=0'>Avanzar</a>");
-    client.println("<a href='" + String(TEST_CONTROL_PATH) + "?cmd=2&riesgo=0'>Atras</a><br>");
-    client.println("<a href='" + String(TEST_CONTROL_PATH) + "?cmd=3&riesgo=0'>Izquierda</a>");
-    client.println("<a href='" + String(TEST_CONTROL_PATH) + "?cmd=4&riesgo=0'>Derecha</a><br>");
-    client.println("<a href='" + String(TEST_CONTROL_PATH) + "?cmd=0&riesgo=0'>Detener</a>");
+    // Información del sistema
+    client.println("<div style='margin: 30px auto; max-width: 600px; text-align: left; background: #34495e; padding: 20px; border-radius: 10px;'>");
+    client.println("<h3 style='color: #3498db; margin-top: 0;'>📊 Información del Sistema</h3>");
+    client.println("<p><strong>Estado:</strong> Operativo</p>");
+    
+    // Obtener información de detección si la cámara está disponible
+    if (g_cameraVision != nullptr) {
+        DetectionResult det = g_cameraVision->getUltimaDeteccion();
+        float distancia = g_cameraVision->getDistanciaMinima();
+        bool riesgo = g_cameraVision->getRiesgoLocal();
+        ColorRange rango = g_cameraVision->getColorRange();
+        
+        if (det.encontrado) {
+            client.println("<p><strong>Detección:</strong> ✅ Objeto encontrado</p>");
+            client.printf("<p><strong>Posición:</strong> (%d, %d) px</p>", det.centroide_x, det.centroide_y);
+            client.printf("<p><strong>Tamaño:</strong> %dx%d px (Área: %d px²)</p>", det.ancho, det.alto, det.area);
+            client.printf("<p><strong>Distancia:</strong> %.1f cm</p>", distancia);
+            client.printf("<p><strong>Alerta:</strong> %s</p>", riesgo ? "⚠️ Objeto muy cerca" : "✅ Distancia segura");
+        } else {
+            client.println("<p><strong>Detección:</strong> ❌ No se detectó ningún objeto</p>");
+        }
+        
+        client.println("<hr style='border-color: #2c3e50;'>");
+        client.println("<p style='color: #95a5a6; font-size: 14px;'><strong>Rango de Color Configurado:</strong></p>");
+        client.printf("<p style='color: #95a5a6; font-size: 14px;'>R: %d-%d | G: %d-%d | B: %d-%d</p>", 
+                     rango.r_min, rango.r_max, rango.g_min, rango.g_max, rango.b_min, rango.b_max);
+    } else {
+        client.println("<p><strong>Detección:</strong> ⚠️ Cámara no inicializada</p>");
+    }
+    
+    client.println("</div>");
+    
+    // Mostrar ambos streams
+    client.println("<h2>Vista Original:</h2>");
+    client.println("<img src='" + String(STREAM_PATH) + "' style='width:45%; display:inline-block;' />");
+    client.println("<h2>Vista Procesada (Verde/Azul):</h2>");
+    client.println("<img src='/stream_processed' style='width:45%; display:inline-block;' />");
+    
+    // Botón de apagado del sistema
     client.println("<br><br>");
-    client.println("<a href='" + String(TEST_CONTROL_PATH) + "?cmd=1&riesgo=1' style='background:#e74c3c;'>Simular Veto Global</a>");
-#endif
-    
-    // Mostrar el stream en línea
-    client.println("<h2>Vista de la Cámara del Autito:</h2>");
-    client.println("<img src='" + String(STREAM_PATH) + "' />");
+    client.println("<a href='/shutdown' class='shutdown-btn' onclick='return confirm(\"¿Seguro que deseas apagar el sistema? Se liberará toda la memoria y el ESP32 se reiniciará.\");'>⚠ Apagar Sistema</a>");
     
     client.println("</body></html>");
 }
@@ -325,59 +437,152 @@ void NetworkManager::serveVideoStream(WiFiClient& client) {
     DEBUG_PRINTLN("[NETWORK] Stream finalizado");
 }
 
-#ifdef MODO_PRUEBA_SIN_COMPANERO
-/**
- * @brief Endpoint de prueba para simular comandos ESP-NOW
- * Permite controlar el autito mediante HTTP GET sin necesidad de la cámara fija
- */
-void NetworkManager::serveTestControl(WiFiClient& client, String& request) {
-    // Parsear parámetros GET
-    int cmd = CMD_DETENER;
-    bool riesgo = false;
+void NetworkManager::serveProcessedStream(WiFiClient& client) {
+    DEBUG_PRINTLN("[NETWORK] Iniciando stream procesado");
     
-    // Extraer parámetro 'cmd'
-    int cmdIndex = request.indexOf("cmd=");
-    if (cmdIndex != -1) {
-        String cmdStr = request.substring(cmdIndex + 4);
-        int endIndex = cmdStr.indexOf('&');
-        if (endIndex == -1) endIndex = cmdStr.indexOf(' ');
-        if (endIndex != -1) cmdStr = cmdStr.substring(0, endIndex);
-        cmd = cmdStr.toInt();
+    camera_fb_t* test_fb = esp_camera_fb_get();
+    if (!test_fb) {
+        client.println("HTTP/1.1 503 Service Unavailable");
+        client.println("Connection: close");
+        client.println();
+        return;
     }
+    esp_camera_fb_return(test_fb);
     
-    // Extraer parámetro 'riesgo'
-    int riesgoIndex = request.indexOf("riesgo=");
-    if (riesgoIndex != -1) {
-        String riesgoStr = request.substring(riesgoIndex + 7);
-        int endIndex = riesgoStr.indexOf('&');
-        if (endIndex == -1) endIndex = riesgoStr.indexOf(' ');
-        if (endIndex != -1) riesgoStr = riesgoStr.substring(0, endIndex);
-        riesgo = (riesgoStr.toInt() != 0);
-    }
-    
-    // Actualizar variables globales (definidas en main.cpp)
-    extern volatile int g_comandoUsuario;
-    extern volatile bool g_hayRiesgoGlobal;
-    
-    g_comandoUsuario = cmd;
-    g_hayRiesgoGlobal = riesgo;
-    
-    DEBUG_PRINTF("[NETWORK] Test Control - CMD: %d, Riesgo: %d\n", cmd, riesgo);
-    
-    // Responder con JSON
     client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type: application/json");
-    client.println("Access-Control-Allow-Origin: *");
+    client.println("Content-Type: multipart/x-mixed-replace; boundary=frame");
     client.println("Connection: close");
     client.println();
     
-    client.print("{\"status\":\"ok\",\"comando\":");
-    client.print(cmd);
-    client.print(",\"riesgoGlobal\":");
-    client.print(riesgo ? "true" : "false");
-    client.println("}");
+    while (client.connected()) {
+        camera_fb_t* fb = esp_camera_fb_get();
+        if (!fb) {
+            delay(100);
+            continue;
+        }
+        
+        // Procesar frame: convertir a binario (verde/azul = blanco, resto = negro)
+        uint8_t* processed_buf = (uint8_t*)malloc(fb->width * fb->height);
+        if (processed_buf) {
+            processBinaryImage(fb, processed_buf);
+            
+            // Convertir imagen binaria a JPEG
+            uint8_t* jpg_buf = nullptr;
+            size_t jpg_len = 0;
+            
+            // Crear un framebuffer temporal RGB888 para la conversión
+            camera_fb_t temp_fb;
+            temp_fb.width = fb->width;
+            temp_fb.height = fb->height;
+            temp_fb.format = PIXFORMAT_GRAYSCALE;
+            temp_fb.buf = processed_buf;
+            temp_fb.len = fb->width * fb->height;
+            
+            bool converted = frame2jpg(&temp_fb, 85, &jpg_buf, &jpg_len);
+            
+            if (converted && jpg_buf) {
+                client.println("--frame");
+                client.println("Content-Type: image/jpeg");
+                client.println("Content-Length: " + String(jpg_len));
+                client.println();
+                client.write(jpg_buf, jpg_len);
+                client.println();
+                free(jpg_buf);
+            }
+            
+            free(processed_buf);
+        }
+        
+        esp_camera_fb_return(fb);
+        delay(50);
+    }
+    
+    DEBUG_PRINTLN("[NETWORK] Stream procesado finalizado");
 }
-#endif
+
+void NetworkManager::processBinaryImage(camera_fb_t* fb, uint8_t* output) {
+    if (fb->format != PIXFORMAT_JPEG) {
+        memset(output, 0, fb->width * fb->height);
+        return;
+    }
+    
+    // Configurar variables globales
+    g_processed_buffer = output;
+    g_img_width = fb->width;
+    g_img_height = fb->height;
+    g_jpeg_data = fb->buf;
+    g_jpeg_len = fb->len;
+    g_jpeg_pos = 0;
+    memset(output, 0, fb->width * fb->height);
+    
+    // Decodificar JPEG
+    esp_err_t err = esp_jpg_decode(fb->len, JPG_SCALE_NONE, jpg_read, jpg_write, nullptr);
+    
+    if (err != ESP_OK) {
+        DEBUG_PRINTF("[NETWORK] Error decodificando JPEG: %d\n", err);
+    }
+    
+    g_processed_buffer = nullptr;
+}
+
+/**
+ * @brief Endpoint para apagar el sistema y liberar toda la memoria
+ * Desinicializa la cámara, libera buffers, desconecta WiFi y reinicia el ESP32
+ */
+void NetworkManager::serveShutdown(WiFiClient& client) {
+    DEBUG_PRINTLN("[NETWORK] Iniciando apagado del sistema...");
+    
+    // Enviar respuesta HTML al cliente
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: text/html");
+    client.println("Connection: close");
+    client.println();
+    
+    client.println("<!DOCTYPE html>");
+    client.println("<html><head>");
+    client.println("<meta charset='UTF-8'>");
+    client.println("<title>Apagando Sistema</title>");
+    client.println("<style>");
+    client.println("body { font-family: Arial; text-align: center; background: #2c3e50; color: white; padding: 50px; }");
+    client.println("h1 { color: #e74c3c; }");
+    client.println(".spinner { border: 8px solid #f3f3f3; border-top: 8px solid #e74c3c; ");
+    client.println("           border-radius: 50%; width: 60px; height: 60px; ");
+    client.println("           animation: spin 1s linear infinite; margin: 20px auto; }");
+    client.println("@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }");
+    client.println("</style></head><body>");
+    client.println("<h1>⚠ Apagando Sistema</h1>");
+    client.println("<div class='spinner'></div>");
+    client.println("<p>Liberando memoria y recursos...</p>");
+    client.println("<p>El ESP32 se reiniciará en unos segundos.</p>");
+    client.println("<p><strong>Puedes cerrar esta ventana.</strong></p>");
+    client.println("</body></html>");
+    
+    client.flush();
+    delay(500);  // Dar tiempo para que se envíe la respuesta
+    
+    // Liberar recursos de cámara
+    DEBUG_PRINTLN("[NETWORK] Desinicializando cámara...");
+    esp_camera_deinit();
+    delay(100);
+    
+    // Desconectar WiFi
+    DEBUG_PRINTLN("[NETWORK] Desconectando WiFi...");
+    WiFi.disconnect(true);
+    delay(100);
+    
+    // Liberar ESP-NOW
+    DEBUG_PRINTLN("[NETWORK] Liberando ESP-NOW...");
+    esp_now_deinit();
+    delay(100);
+    
+    // Log final
+    DEBUG_PRINTLN("[NETWORK] Memoria liberada. Reiniciando ESP32...");
+    delay(500);
+    
+    // Reiniciar el ESP32
+    esp_restart();
+}
+
 
 /**
  * @brief Retorna el puntero al servidor WiFi

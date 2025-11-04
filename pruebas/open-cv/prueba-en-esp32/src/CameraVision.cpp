@@ -1,21 +1,6 @@
 #include "CameraVision.h"
 #include "config.h"
 
-#ifdef DETECTION_JPEG
-#include <TJpg_Decoder.h>
-#endif
-
-#ifdef DETECTION_JPEG
-int CameraVision::jpegDecodeCount = 0;
-int CameraVision::jpegSumX = 0;
-int CameraVision::jpegSumY = 0;
-int CameraVision::jpegMinX = 99999;
-int CameraVision::jpegMaxX = 0;
-int CameraVision::jpegMinY = 99999;
-int CameraVision::jpegMaxY = 0;
-ColorRange CameraVision::jpegColorRange = {0, 90, 120, 255, 0, 90};
-#endif
-
 bool CameraVision::setup() {
     cameraInitialized = false;
     distanciaMinimaLocal = -1.0f;
@@ -28,12 +13,20 @@ bool CameraVision::setup() {
         return false;
     }
 
-    colorObstaculo.r_min = 0;
-    colorObstaculo.r_max = 90;
-    colorObstaculo.g_min = 120;
-    colorObstaculo.g_max = 255;
-    colorObstaculo.b_min = 0;
-    colorObstaculo.b_max = 90;
+    #define VERDE_H_MIN 35
+    #define VERDE_H_MAX 85
+    #define VERDE_S_MIN 100
+    #define VERDE_S_MAX 255
+    #define VERDE_V_MIN 100
+    #define VERDE_V_MAX 255
+
+    #define AZUL_H_MIN 95
+    #define AZUL_H_MAX 130
+    #define AZUL_S_MIN 100
+    #define AZUL_S_MAX 255
+    #define AZUL_V_MIN 100
+    #define AZUL_V_MAX 255
+
 
     camera_config_t config;
     config.ledc_channel = LEDC_CHANNEL_0;
@@ -57,93 +50,21 @@ bool CameraVision::setup() {
     config.pin_reset = CAM_PIN_RESET;
     
     config.xclk_freq_hz = 20000000;
-    config.fb_count = 1;
-    config.fb_location = CAMERA_FB_IN_PSRAM;
-    config.grab_mode = CAMERA_GRAB_LATEST;
-
-#ifdef DETECTION_JPEG
-    DEBUG_PRINTLN("[VISION] Modo: JPEG con decodificacion linea por linea");
-    config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size = FRAMESIZE_QQVGA;
-    config.jpeg_quality = 15;
-#else
-    DEBUG_PRINTLN("[VISION] Modo: RGB565 directo");
-    config.pixel_format = PIXFORMAT_RGB565;
-    config.frame_size = FRAMESIZE_96X96;
-    config.jpeg_quality = 15;
-#endif
-
-    DEBUG_PRINTLN("[VISION] Configuracion de camara:");
-    DEBUG_PRINTF("  XCLK: Deshabilitado (freq=0)\n");
-    DEBUG_PRINTF("  Formato: %s\n", 
-#ifdef DETECTION_JPEG
-                 "JPEG"
-#else
-                 "RGB565"
-#endif
-    );
-    DEBUG_PRINTF("  Resolucion: %s\n",
-#ifdef DETECTION_JPEG
-                 "QQVGA (160x120)"
-#else
-                 "96x96"
-#endif
-    );
+    
+    config.pixel_format = PIXFORMAT_RGB565; 
+    config.frame_size = FRAMESIZE_HVGA;     
+    config.fb_count = 2;                    
+    config.fb_location = CAMERA_FB_IN_PSRAM; 
+    config.grab_mode = CAMERA_GRAB_LATEST;  
+    config.jpeg_quality = 63;
 
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {
         DEBUG_PRINTF("[VISION] Error al inicializar: 0x%x\n", err);
-        
-#ifndef DETECTION_JPEG
-        DEBUG_PRINTLN("[VISION] Reintentando con QQVGA...");
-        config.frame_size = FRAMESIZE_QQVGA;
-        err = esp_camera_init(&config);
-        
-        if (err != ESP_OK) {
-            DEBUG_PRINTF("[VISION] Error con QQVGA: 0x%x\n", err);
-            return false;
-        }
-#else
         return false;
-#endif
     }
-
-    sensor_t* s = esp_camera_sensor_get();
-    if (s != NULL) {
-        s->set_brightness(s, 0);
-        s->set_contrast(s, 1);
-        s->set_saturation(s, 2);
-        s->set_special_effect(s, 0);
-        s->set_whitebal(s, 1);
-        s->set_awb_gain(s, 1);
-        s->set_wb_mode(s, 0);
-        s->set_exposure_ctrl(s, 1);
-        s->set_aec2(s, 1);
-        s->set_ae_level(s, 0);
-        s->set_aec_value(s, 300);
-        s->set_gain_ctrl(s, 1);
-        s->set_agc_gain(s, 0);
-        s->set_gainceiling(s, (gainceiling_t)0);
-        s->set_bpc(s, 1);
-        s->set_wpc(s, 1);
-        s->set_raw_gma(s, 1);
-        s->set_lenc(s, 1);
-        s->set_hmirror(s, 0);
-        s->set_vflip(s, 0);
-        s->set_dcw(s, 1);
-        s->set_colorbar(s, 0);
-        
-        DEBUG_PRINTF("[VISION] Sensor ID: 0x%02X\n", s->id.PID);
-    }
-
-#ifdef DETECTION_JPEG
-    TJpgDec.setJpgScale(1);
-    TJpgDec.setCallback(jpegOutputCallback);
-    DEBUG_PRINTLN("[VISION] TJpgDec inicializado");
-#endif
-
     cameraInitialized = true;
-    DEBUG_PRINTLN("[VISION] Camara inicializada correctamente");
+    DEBUG_PRINTLN("[VISION] Camara inicializada correctamente (Modo OpenCV/PSRAM)");
     
     camera_fb_t* test_fb = esp_camera_fb_get();
     if (test_fb) {
@@ -173,81 +94,6 @@ bool CameraVision::estaEnRangoColor(uint8_t r, uint8_t g, uint8_t b, const Color
             b >= range.b_min && b <= range.b_max);
 }
 
-#ifdef DETECTION_JPEG
-
-bool CameraVision::jpegOutputCallback(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) {
-    for (uint16_t i = 0; i < w * h; i++) {
-        uint16_t pixel = bitmap[i];
-        uint8_t r, g, b;
-        
-        uint8_t r5 = (pixel >> 11) & 0x1F;
-        uint8_t g6 = (pixel >> 5) & 0x3F;
-        uint8_t b5 = pixel & 0x1F;
-        
-        r = (r5 * 255) / 31;
-        g = (g6 * 255) / 63;
-        b = (b5 * 255) / 31;
-        
-        if (r >= jpegColorRange.r_min && r <= jpegColorRange.r_max &&
-            g >= jpegColorRange.g_min && g <= jpegColorRange.g_max &&
-            b >= jpegColorRange.b_min && b <= jpegColorRange.b_max) {
-            
-            int px = x + (i % w);
-            int py = y + (i / w);
-            
-            jpegDecodeCount++;
-            jpegSumX += px;
-            jpegSumY += py;
-            
-            if (px < jpegMinX) jpegMinX = px;
-            if (px > jpegMaxX) jpegMaxX = px;
-            if (py < jpegMinY) jpegMinY = py;
-            if (py > jpegMaxY) jpegMaxY = py;
-        }
-    }
-    
-    return true;
-}
-
-void CameraVision::detectarObjetoJPEG(camera_fb_t* fb, DetectionResult& resultado) {
-    resultado.encontrado = false;
-    
-    if (fb == NULL || fb->format != PIXFORMAT_JPEG) {
-        return;
-    }
-    
-    jpegDecodeCount = 0;
-    jpegSumX = 0;
-    jpegSumY = 0;
-    jpegMinX = 99999;
-    jpegMaxX = 0;
-    jpegMinY = 99999;
-    jpegMaxY = 0;
-    
-    if (xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE) {
-        jpegColorRange = colorObstaculo;
-        xSemaphoreGive(dataMutex);
-    }
-    
-    TJpgDec.drawJpg(0, 0, (const uint8_t*)fb->buf, fb->len);
-    
-    const int umbral_min_pixeles = 20;
-    
-    if (jpegDecodeCount >= umbral_min_pixeles) {
-        resultado.encontrado = true;
-        resultado.centroide_x = jpegSumX / jpegDecodeCount;
-        resultado.centroide_y = jpegSumY / jpegDecodeCount;
-        resultado.ancho = jpegMaxX - jpegMinX;
-        resultado.alto = jpegMaxY - jpegMinY;
-        resultado.area = jpegDecodeCount;
-    }
-}
-
-void CameraVision::detectarObjeto(camera_fb_t* fb, DetectionResult& resultado) {
-    detectarObjetoJPEG(fb, resultado);
-}
-
-#else
 
 void CameraVision::detectarObjetoRGB565(camera_fb_t* fb, DetectionResult& resultado) {
     resultado.encontrado = false;
@@ -305,7 +151,6 @@ void CameraVision::detectarObjeto(camera_fb_t* fb, DetectionResult& resultado) {
     detectarObjetoRGB565(fb, resultado);
 }
 
-#endif
 
 void CameraVision::run() {
     if (!cameraInitialized) {

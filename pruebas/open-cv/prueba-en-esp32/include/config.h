@@ -9,14 +9,14 @@
 #define CONNECT_TO_NETWORK   // Modo STA: Conecta a red existente
 
 // --- MODO DE DETECCION ---
-// Descomentar para usar deteccion JPEG (requiere TJpgDec, ~10KB RAM)
+
 // Comentar para usar RGB565 directo (requiere PSRAM)
 // #define DETECTION_JPEG
 
 // --- PINES DE LA CÁMARA (ESP32-CAM) ---
 #define CAM_PIN_PWDN    -1 // No se usa
 #define CAM_PIN_RESET   -1 // No se usa
-#define CAM_PIN_XCLK    15
+#define CAM_PIN_XCLK    -1
 #define CAM_PIN_SDA    4  // SDA
 #define CAM_PIN_SCL    5  // SCL
 
@@ -38,12 +38,12 @@
 
 
 // --- PINES DE CONTROL DE MOTORES (L298N) ---
-#define MOTOR_A_IN1    12
-#define MOTOR_A_IN2    13
-#define MOTOR_A_ENA    14
-#define MOTOR_B_IN3    15
-#define MOTOR_B_IN4    16
-#define MOTOR_B_ENB    17
+#define MOTOR_A_IN1    19
+#define MOTOR_A_IN2    20
+#define MOTOR_A_ENA    21
+#define MOTOR_B_IN3    47
+#define MOTOR_B_IN4    48
+#define MOTOR_B_ENB    45
 
 #define MOTOR_PWM_CHANNEL_A 0
 #define MOTOR_PWM_CHANNEL_B 1

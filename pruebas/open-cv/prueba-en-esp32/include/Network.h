@@ -3,7 +3,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include "esp_now.h"
-#include "config.h"  // Incluir config.h para acceder a MODO_PRUEBA_SIN_COMPANERO
+#include "esp_camera.h"
+#include "config.h"
 
 /**
  * @file Network.h
@@ -76,16 +77,25 @@ private:
      */
     void serveVideoStream(WiFiClient& client);
 
-#ifdef MODO_PRUEBA_SIN_COMPANERO
     /**
-     * @brief Sirve el endpoint de prueba /test_control
-     * Permite simular comandos ESP-NOW mediante HTTP GET
-     * Ejemplo: /test_control?cmd=1&riesgo=0
+     * @brief Sirve el stream procesado (binario: verde/azul=blanco)
      * @param client Cliente web conectado
-     * @param request Línea de request HTTP
      */
-    void serveTestControl(WiFiClient& client, String& request);
-#endif
+    void serveProcessedStream(WiFiClient& client);
+    
+    /**
+     * @brief Procesa frame a imagen binaria
+     * @param fb Frame buffer de entrada
+     * @param output Buffer de salida (grayscale)
+     */
+    void processBinaryImage(camera_fb_t* fb, uint8_t* output);
+
+    /**
+     * @brief Endpoint para apagar el sistema y liberar memoria
+     * Desinicializa cámara, WiFi y reinicia el ESP32
+     * @param client Cliente web conectado
+     */
+    void serveShutdown(WiFiClient& client);
 };
 
 // Puntero global al sistema de visión (se configurará en main.cpp)
