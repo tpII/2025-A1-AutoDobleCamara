@@ -5,6 +5,7 @@
 #include "img_converters.h"
 #include "esp_mac.h"  // Para MACSTR y MAC2STR
 #include <string.h>
+#include <vector> 
 
 static const char *TAG = "NETWORK";
 
@@ -94,20 +95,29 @@ bool NetworkManager::initWiFi() {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
     
-    // Esperar conexión
     ESP_LOGI(TAG, "Esperando conexión WiFi...");
     vTaskDelay(pdMS_TO_TICKS(5000));  // Dar tiempo para conectar
     
-    // mDNS deshabilitado por ahora (requiere componente adicional en ESP-IDF 6.0)
-    // Para habilitarlo: idf.py add-dependency "espressif/mdns"
-    /*
-    ESP_ERROR_CHECK(mdns_init());
-    ESP_ERROR_CHECK(mdns_hostname_set("autito-robot"));
-    ESP_LOGI(TAG, "✓ mDNS iniciado: http://autito-robot.local");
-    */
 #endif
 
     return true;
+}
+
+
+void NetworkManager::getIP(char* ip_str, size_t len) {
+#ifdef ACCESS_POINT_MODE
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+#else
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+#endif
+    
+    if (netif) {
+        esp_netif_ip_info_t ip_info;
+        esp_netif_get_ip_info(netif, &ip_info);
+        snprintf(ip_str, len, IPSTR, IP2STR(&ip_info.ip));
+    } else {
+        snprintf(ip_str, len, "0.0.0.0");
+    }
 }
 
 bool NetworkManager::setup() {
@@ -126,28 +136,12 @@ bool NetworkManager::setup() {
     char ip[16];
     getIP(ip, sizeof(ip));
     ESP_LOGI(TAG, "✓ Servidor web iniciado en http://%s:%d", ip, WEB_SERVER_PORT);
-    ESP_LOGI(TAG, "  Stream: http://%s%s", ip, STREAM_PATH);
+    ESP_LOGI(TAG, "  Stream Original: http://%s%s", ip, STREAM_PATH);
+    ESP_LOGI(TAG, "  Stream Procesado: http://%s/stream_processed", ip);
     
     return true;
 }
 
-void NetworkManager::getIP(char* ip_str, size_t len) {
-#ifdef ACCESS_POINT_MODE
-    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
-#else
-    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-#endif
-    
-    if (netif) {
-        esp_netif_ip_info_t ip_info;
-        esp_netif_get_ip_info(netif, &ip_info);
-        snprintf(ip_str, len, IPSTR, IP2STR(&ip_info.ip));
-    } else {
-        snprintf(ip_str, len, "0.0.0.0");
-    }
-}
-
-// Handler para página principal
 esp_err_t NetworkManager::index_handler(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/html");
     
@@ -159,27 +153,18 @@ esp_err_t NetworkManager::index_handler(httpd_req_t *req) {
         "<style>"
         "body { font-family: Arial; text-align: center; background: #2c3e50; color: white; padding: 20px; }"
         "h1 { color: #3498db; }"
-        "a { display: inline-block; margin: 15px; padding: 15px 30px; "
-        "    background: #3498db; color: white; text-decoration: none; "
-        "    border-radius: 5px; font-size: 18px; }"
-        "a:hover { background: #2980b9; }"
+        ".streams { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; }"
+        ".stream-box { border: 2px solid #333; border-radius: 8px; overflow: hidden; }"
+        ".stream-box h2 { background: #333; margin: 0; padding: 10px; }"
+        "img { max-width: 90%; width: 320px; height: 240px; background: #000; }"
         ".info { max-width: 600px; margin: 20px auto; text-align: left; "
         "        background: #34495e; padding: 20px; border-radius: 10px; }"
         ".shutdown-btn { background: #e74c3c !important; }"
         ".shutdown-btn:hover { background: #c0392b !important; }"
-        "img { max-width: 90%; border: 3px solid #3498db; margin: 20px; }"
         "</style></head><body>"
-        "<h1>🎥 Sistema de Detección de Objetos</h1>"
-        "<p>ESP32-S3 con OpenCV + Detección en Tiempo Real</p>";
+        "<h1>🎥 Sistema de Detección de Objetos</h1>";
     
     httpd_resp_send_chunk(req, html_start, strlen(html_start));
-    
-    // Enlaces
-    const char* links = 
-        "<div>"
-        "<a href='/stream' target='_blank'>Ver Stream de Cámara</a>"
-        "</div>";
-    httpd_resp_send_chunk(req, links, strlen(links));
     
     // Información del sistema
     httpd_resp_sendstr_chunk(req, "<div class='info'>");
@@ -212,9 +197,9 @@ esp_err_t NetworkManager::index_handler(httpd_req_t *req) {
     
     httpd_resp_sendstr_chunk(req, "</div>");
     
-    // Stream embebido
+    // Stream único (solo original)
     httpd_resp_sendstr_chunk(req, "<h2>Vista en Vivo:</h2>");
-    httpd_resp_sendstr_chunk(req, "<img src='/stream' />");
+    httpd_resp_sendstr_chunk(req, "<img src='/stream' style='max-width: 90%; border: 3px solid #3498db; margin: 20px;' />");
     
     // Botón de shutdown
     httpd_resp_sendstr_chunk(req, 
@@ -223,15 +208,15 @@ esp_err_t NetworkManager::index_handler(httpd_req_t *req) {
         "⚠ Reiniciar Sistema</a>");
     
     httpd_resp_sendstr_chunk(req, "</body></html>");
-    httpd_resp_sendstr_chunk(req, NULL);  // Finalizar chunked response
+    httpd_resp_sendstr_chunk(req, NULL);
     
     return ESP_OK;
 }
 
-// Handler para stream MJPEG
+// Handler para stream MJPEG (directo de la cámara)
 esp_err_t NetworkManager::stream_handler(httpd_req_t *req) {
     esp_err_t res = ESP_OK;
-    
+
     camera_fb_t* test_fb = esp_camera_fb_get();
     if (!test_fb) {
         ESP_LOGE(TAG, "Cámara no disponible");
@@ -240,12 +225,12 @@ esp_err_t NetworkManager::stream_handler(httpd_req_t *req) {
     }
     esp_camera_fb_return(test_fb);
     
-    // Headers para MJPEG streaming
+    // Headers MJPEG
     httpd_resp_set_type(req, "multipart/x-mixed-replace; boundary=frame");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     
     ESP_LOGI(TAG, "Iniciando stream de video");
-    
+
     while (true) {
         camera_fb_t* fb = esp_camera_fb_get();
         if (!fb) {
@@ -280,18 +265,10 @@ esp_err_t NetworkManager::stream_handler(httpd_req_t *req) {
                 jpg_len);
         
         res = httpd_resp_send_chunk(req, part_buf, strlen(part_buf));
+        if (res == ESP_OK) res = httpd_resp_send_chunk(req, (const char*)jpg_buf, jpg_len);
+        if (res == ESP_OK) res = httpd_resp_send_chunk(req, "\r\n", 2);
         
-        if (res == ESP_OK) {
-            res = httpd_resp_send_chunk(req, (const char*)jpg_buf, jpg_len);
-        }
-        
-        if (res == ESP_OK) {
-            res = httpd_resp_send_chunk(req, "\r\n", 2);
-        }
-        
-        if (need_free && jpg_buf != nullptr) {
-            free(jpg_buf);
-        }
+        if (need_free && jpg_buf != nullptr) free(jpg_buf);
         esp_camera_fb_return(fb);
         
         if (res != ESP_OK) {
@@ -299,13 +276,13 @@ esp_err_t NetworkManager::stream_handler(httpd_req_t *req) {
             break;
         }
         
-        vTaskDelay(pdMS_TO_TICKS(50));  // ~20 FPS
+        vTaskDelay(pdMS_TO_TICKS(50)); 
     }
     
     return res;
 }
 
-// Handler para shutdown/reinicio
+
 esp_err_t NetworkManager::shutdown_handler(httpd_req_t *req) {
     ESP_LOGW(TAG, "Reinicio solicitado vía web");
     
@@ -327,12 +304,12 @@ esp_err_t NetworkManager::shutdown_handler(httpd_req_t *req) {
     
     httpd_resp_send(req, html, strlen(html));
     
-    // Programar reinicio
     vTaskDelay(pdMS_TO_TICKS(1000));
     esp_restart();
     
     return ESP_OK;
 }
+
 
 bool NetworkManager::initHTTPServer() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -340,7 +317,8 @@ bool NetworkManager::initHTTPServer() {
     config.ctrl_port = 32768;
     config.max_open_sockets = 7;
     config.lru_purge_enable = true;
-    
+    config.stack_size = 8192; // Aumentar stack
+
     ESP_LOGI(TAG, "Iniciando servidor HTTP en puerto %d", config.server_port);
     
     if (httpd_start(&server, &config) != ESP_OK) {
@@ -384,3 +362,4 @@ void NetworkManager::stop() {
     esp_wifi_stop();
     ESP_LOGI(TAG, "Servidor detenido");
 }
+

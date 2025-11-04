@@ -85,7 +85,7 @@
 #endif
 
 #define WEB_SERVER_PORT   80
-#define STREAM_PATH       "/stream_auto"
+#define STREAM_PATH       "/stream"
 #define TEST_CONTROL_PATH "/test_control"
 
 #define ESPNOW_CHANNEL    1
