@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "config.h"
+#include <opencv2/opencv.hpp>
 
 struct ColorRange {
     uint8_t r_min, r_max;

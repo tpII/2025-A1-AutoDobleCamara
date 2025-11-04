@@ -376,10 +376,8 @@ void NetworkManager::serveVideoStream(WiFiClient& client) {
         return;
     }
     
-    // La cámara está funcionando, liberar el frame de prueba
     esp_camera_fb_return(test_fb);
     
-    // Headers para MJPEG stream
     client.println("HTTP/1.1 200 OK");
     client.println("Content-Type: multipart/x-mixed-replace; boundary=frame");
     client.println("Connection: close");
@@ -387,7 +385,6 @@ void NetworkManager::serveVideoStream(WiFiClient& client) {
     
     // Stream continuo de frames
     while (client.connected()) {
-        // Capturar frame directamente de la cámara
         camera_fb_t* fb = esp_camera_fb_get();
         
         if (!fb) {
@@ -402,7 +399,6 @@ void NetworkManager::serveVideoStream(WiFiClient& client) {
         bool need_free = false;
         
         if (fb->format == PIXFORMAT_JPEG) {
-            // Ya está en JPEG, usar directamente
             jpg_buf = fb->buf;
             jpg_buf_len = fb->len;
         } else {
@@ -416,7 +412,6 @@ void NetworkManager::serveVideoStream(WiFiClient& client) {
             }
         }
         
-        // Enviar frame JPEG al cliente
         client.println("--frame");
         client.println("Content-Type: image/jpeg");
         client.println("Content-Length: " + String(jpg_buf_len));
@@ -424,25 +419,34 @@ void NetworkManager::serveVideoStream(WiFiClient& client) {
         client.write(jpg_buf, jpg_buf_len);
         client.println();
         
-        // Liberar memoria
         if (need_free && jpg_buf != nullptr) {
             free(jpg_buf);
         }
         esp_camera_fb_return(fb);
         
-        // Pequeño delay para controlar FPS
-        delay(50);  // ~20 FPS
+        //  delay para controlar FPS
+        delay(50);  
     }
     
     DEBUG_PRINTLN("[NETWORK] Stream finalizado");
 }
 
 void NetworkManager::serveProcessedStream(WiFiClient& client) {
-    DEBUG_PRINTLN("[NETWORK] Iniciando stream procesado");
+    DEBUG_PRINTLN("[NETWORK] Iniciando stream procesado (OpenCV)");
     
     camera_fb_t* test_fb = esp_camera_fb_get();
     if (!test_fb) {
+        // ... (tu código de error 503 está bien) ...
         client.println("HTTP/1.1 503 Service Unavailable");
+        client.println("Connection: close");
+        client.println();
+        return;
+    }
+
+     if (test_fb->format != PIXFORMAT_RGB565) {
+        DEBUG_PRINTLN("[NETWORK] ¡Error! El stream procesado REQUIERE formato PIXFORMAT_RGB565");
+        esp_camera_fb_return(test_fb);
+        client.println("HTTP/1.1 500 Internal Server Error");
         client.println("Connection: close");
         client.println();
         return;
@@ -461,40 +465,34 @@ void NetworkManager::serveProcessedStream(WiFiClient& client) {
             continue;
         }
         
-        // Procesar frame: convertir a binario (verde/azul = blanco, resto = negro)
-        uint8_t* processed_buf = (uint8_t*)malloc(fb->width * fb->height);
-        if (processed_buf) {
-            processBinaryImage(fb, processed_buf);
-            
-            // Convertir imagen binaria a JPEG
-            uint8_t* jpg_buf = nullptr;
-            size_t jpg_len = 0;
-            
-            // Crear un framebuffer temporal RGB888 para la conversión
-            camera_fb_t temp_fb;
-            temp_fb.width = fb->width;
-            temp_fb.height = fb->height;
-            temp_fb.format = PIXFORMAT_GRAYSCALE;
-            temp_fb.buf = processed_buf;
-            temp_fb.len = fb->width * fb->height;
-            
-            bool converted = frame2jpg(&temp_fb, 85, &jpg_buf, &jpg_len);
-            
-            if (converted && jpg_buf) {
-                client.println("--frame");
-                client.println("Content-Type: image/jpeg");
-                client.println("Content-Length: " + String(jpg_len));
-                client.println();
-                client.write(jpg_buf, jpg_len);
-                client.println();
-                free(jpg_buf);
+        if (fb->format == PIXFORMAT_RGB565) {
+            if (g_cameraVision) {
+                g_cameraVision->processFrameForUI(fb);
             }
-            
-            free(processed_buf);
+        }
+
+        uint8_t* jpg_buf = nullptr;
+        size_t jpg_len = 0;
+        
+        bool ok = frame2jpg(fb, 12, &jpg_buf, &jpg_len);
+        
+        esp_camera_fb_return(fb); // Devolver el buffer original
+
+        if (!ok || !jpg_buf) {
+            DEBUG_PRINTLN("[NETWORK] Error convirtiendo a JPEG");
+            continue;
         }
         
-        esp_camera_fb_return(fb);
-        delay(50);
+        client.println("--frame");
+        client.println("Content-Type: image/jpeg");
+        client.println("Content-Length: " + String(jpg_len));
+        client.println();
+        client.write((char*)jpg_buf, jpg_len);
+        client.println();
+        
+        free(jpg_buf); 
+        
+        delay(50); 
     }
     
     DEBUG_PRINTLN("[NETWORK] Stream procesado finalizado");

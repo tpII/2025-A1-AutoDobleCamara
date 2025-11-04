@@ -78,6 +78,68 @@ bool CameraVision::setup() {
     return true;
 }
 
+void CameraVision::draw_rectangle_rgb565(camera_fb_t* fb, const cv::Rect& rect, uint16_t color) {
+    if (!fb || fb->format != PIXFORMAT_RGB565) return;
+
+    uint16_t* p_buf = (uint16_t*)fb->buf;
+    int w = fb->width;
+    int h = fb->height;
+
+    // Asegurarse de que las coordenadas no se salgan de la imagen
+    int x1 = std::max(0, rect.x);
+    int y1 = std::max(0, rect.y);
+    int x2 = std::min(w - 1, rect.x + rect.width);
+    int y2 = std::min(h - 1, rect.y + rect.height);
+
+    // Dibujar líneas horizontales (superior e inferior)
+    for (int x = x1; x <= x2; x++) {
+        p_buf[y1 * w + x] = color;
+        p_buf[y2 * w + x] = color;
+    }
+    // Dibujar líneas verticales (izquierda y derecha)
+    for (int y = y1; y <= y2; y++) {
+        p_buf[y * w + x1] = color;
+        p_buf[y * w + x2] = color;
+    }
+}
+
+void CameraVision::processFrameForUI(camera_fb_t* fb) {
+    if (!fb || fb->format != PIXFORMAT_RGB565) {
+        return; // Esta función solo funciona con frames RGB565
+    }
+
+    cv::Mat mat_rgb565(fb->height, fb->width, CV_8UC2, fb->buf);
+    cv::Mat mat_bgr(fb->height, fb->width, CV_8UC3);
+    cv::Mat mat_hsv(fb->height, fb->width, CV_8UC3);
+    cv::Mat mask_green, mask_blue, combined_mask;
+
+    cv::cvtColor(mat_rgb565, mat_bgr, cv::COLOR_RGB5652BGR);
+    cv::cvtColor(mat_bgr, mat_hsv, cv::COLOR_BGR2HSV);
+
+    cv::inRange(mat_hsv, cv::Scalar(VERDE_H_MIN, VERDE_S_MIN, VERDE_V_MIN),
+                cv::Scalar(VERDE_H_MAX, VERDE_S_MAX, VERDE_V_MAX), mask_green);
+    cv::inRange(mat_hsv, cv::Scalar(AZUL_H_MIN, AZUL_S_MIN, AZUL_V_MIN),
+                cv::Scalar(AZUL_H_MAX, AZUL_S_MAX, AZUL_V_MAX), mask_blue);
+    
+    cv::bitwise_or(mask_green, mask_blue, combined_mask);
+
+    cv::erode(combined_mask, combined_mask, cv::Mat());
+    cv::dilate(combined_mask, combined_mask, cv::Mat());
+
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(combined_mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+    
+    const uint16_t COLOR_VERDE_RECT = 0x07E0; // (0, 255, 0) en RGB565
+
+    for (size_t i = 0; i < contours.size(); i++) {
+        if (cv::contourArea(contours[i]) > 100) { 
+            cv::Rect rect = cv::boundingRect(contours[i]);
+            
+            draw_rectangle_rgb565(fb, rect, COLOR_VERDE_RECT);
+        }
+    }
+}
+
 void CameraVision::rgb565ToRgb(uint16_t rgb565, uint8_t* r, uint8_t* g, uint8_t* b) {
     uint8_t r5 = (rgb565 >> 11) & 0x1F;
     uint8_t g6 = (rgb565 >> 5) & 0x3F;
