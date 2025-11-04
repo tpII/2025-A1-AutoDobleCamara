@@ -3,6 +3,7 @@
 #include "config.h"
 #include "esp_camera.h"
 #include "img_converters.h"
+#include "esp_mac.h"  // Para MACSTR y MAC2STR
 #include <string.h>
 
 static const char *TAG = "NETWORK";
@@ -97,10 +98,13 @@ bool NetworkManager::initWiFi() {
     ESP_LOGI(TAG, "Esperando conexión WiFi...");
     vTaskDelay(pdMS_TO_TICKS(5000));  // Dar tiempo para conectar
     
-    // Inicializar mDNS
+    // mDNS deshabilitado por ahora (requiere componente adicional en ESP-IDF 6.0)
+    // Para habilitarlo: idf.py add-dependency "espressif/mdns"
+    /*
     ESP_ERROR_CHECK(mdns_init());
     ESP_ERROR_CHECK(mdns_hostname_set("autito-robot"));
     ESP_LOGI(TAG, "✓ mDNS iniciado: http://autito-robot.local");
+    */
 #endif
 
     return true;

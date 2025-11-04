@@ -6,7 +6,6 @@
 #include "esp_camera.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "mdns.h"
 #include "lwip/sockets.h"
 
 /**
