@@ -23,9 +23,17 @@ struct DetectionResult {
 
 class CameraVision {
 public:
+    CameraVision();
+    bool initCamera();
+    void deinitCamera();
+    camera_fb_t* getFrame();
+    void returnFrame();
+    
+    // Métodos para la lógica de la cámara
     bool setup();
     void run();
-    
+
+    // Métodos para obtener datos
     bool getRiesgoLocal();
     float getDistanciaMinima();
     DetectionResult getUltimaDeteccion();
@@ -39,5 +47,9 @@ private:
     DetectionResult ultimaDeteccion;
 
     SemaphoreHandle_t dataMutex;
+
+    // Métodos privados de procesamiento
+    bool procesarFrame();
     float calcularDistancia(float anchoEnPixeles);    
+    void draw_rectangle_rgb565(camera_fb_t* fb, const cv::Rect& rect, uint16_t color);
 };

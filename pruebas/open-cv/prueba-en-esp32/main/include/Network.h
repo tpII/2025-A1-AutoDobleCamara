@@ -26,6 +26,8 @@ private:
     static esp_err_t index_handler(httpd_req_t *req);
     static esp_err_t stream_handler(httpd_req_t *req);
     static esp_err_t shutdown_handler(httpd_req_t *req);
+    static esp_err_t settings_handler(httpd_req_t *req);
+    static esp_err_t set_param_handler(httpd_req_t *req);
 };
 
 // Puntero global al sistema de visión

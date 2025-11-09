@@ -8,18 +8,21 @@
 static const char *TAG = "VISION";
 
 #define COLOR_H_MIN 8
-#define COLOR_H_MAX 22
-#define COLOR_S_MIN 180
+#define COLOR_H_MAX 25
+#define COLOR_S_MIN 50
 #define COLOR_S_MAX 255
-#define COLOR_V_MIN 150
+#define COLOR_V_MIN 120
 #define COLOR_V_MAX 255
 
-#define AZUL_H_MIN 100
-#define AZUL_H_MAX 130
-#define AZUL_S_MIN 150
-#define AZUL_S_MAX 255
-#define AZUL_V_MIN 80
-#define AZUL_V_MAX 255
+#define RECT_COLOR 0xF800
+
+CameraVision::CameraVision() {
+    cameraInitialized = false;
+    distanciaMinimaLocal = -1.0f;
+    riesgoLocal = false;
+    ultimaDeteccion = {false, 0, 0, 0, 0, 0};
+    dataMutex = NULL;
+}
 
 bool CameraVision::setup() {
     cameraInitialized = false;
@@ -54,10 +57,10 @@ bool CameraVision::setup() {
     config.pin_pwdn = CAM_PIN_PWDN;
     config.pin_reset = CAM_PIN_RESET;
     
-    config.xclk_freq_hz = 12000000;
+    config.xclk_freq_hz = 20000000;
     
     config.pixel_format = PIXFORMAT_RGB565; 
-    config.frame_size = FRAMESIZE_SVGA;
+    config.frame_size = FRAMESIZE_QVGA;
     config.fb_count = 2;
     config.fb_location = CAMERA_FB_IN_PSRAM; 
     config.grab_mode = CAMERA_GRAB_LATEST;   
@@ -68,39 +71,18 @@ bool CameraVision::setup() {
         ESP_LOGE(TAG, "Error al inicializar cámara: 0x%x", err);
         return false;
     }
+
+    // Ajustes manuales de los parametros dela camarita
+    sensor_t* s = esp_camera_sensor_get();
+    if (s) {
+        s->set_exposure_ctrl(s, 1);
+        s->set_gain_ctrl(s, 1);
+        s->set_awb_gain(s, 1);
+        ESP_LOGI(TAG, "Configuracion del sensor manual aplicada");
+    }
+
     cameraInitialized = true;
     ESP_LOGI(TAG, "Cámara inicializada correctamente (Modo OpenCV/PSRAM)");
-    
-    sensor_t *s = esp_camera_sensor_get();
-    if (s != NULL) {
-        
-        s->set_brightness(s, 0);
-        s->set_contrast(s, 0);
-        s->set_saturation(s, 0);
-        s->set_special_effect(s, 0);
-        s->set_whitebal(s, 1);
-        s->set_awb_gain(s, 1);
-        s->set_wb_mode(s, 0);
-        s->set_exposure_ctrl(s, 1);
-        s->set_aec2(s, 0);
-        s->set_ae_level(s, 0);
-        s->set_aec_value(s, 300);
-        s->set_gain_ctrl(s, 1);
-        s->set_agc_gain(s, 0);
-        s->set_gainceiling(s, (gainceiling_t)0);
-        s->set_bpc(s, 0);
-        s->set_wpc(s, 1);
-        s->set_raw_gma(s, 1);
-        s->set_lenc(s, 1);
-        s->set_hmirror(s, 0);
-        s->set_vflip(s, 0);
-        s->set_dcw(s, 1);
-        s->set_colorbar(s, 0);
-        
-        ESP_LOGI(TAG, "✅ Sensor SVGA: 800x600 @ 12MHz con colores vivos");
-    } else {
-        ESP_LOGW(TAG, "⚠️ No se pudo acceder al sensor para ajustes avanzados");
-    }
     
     camera_fb_t* test_fb = esp_camera_fb_get();
     if (test_fb) {
@@ -112,6 +94,22 @@ bool CameraVision::setup() {
     }
     
     return true;
+}
+
+void CameraVision::draw_rectangle_rgb565(camera_fb_t* fb, const cv::Rect& rect, uint16_t color) {
+    if (!fb || fb->format != PIXFORMAT_RGB565) return;
+
+    uint16_t* p_buf = (uint16_t*)fb->buf;
+    int w = fb->width;
+    int h = fb->height;
+
+    int x1 = std::max(0, rect.x);
+    int y1 = std::max(0, rect.y);
+    int x2 = std::min(w - 1, rect.x + rect.width);
+    int y2 = std::min(h - 1, rect.y + rect.height);
+
+    for (int x = x1; x <= x2; x++) { p_buf[y1 * w + x] = color; p_buf[y2 * w + x] = color; }
+    for (int y = y1; y <= y2; y++) { p_buf[y * w + x1] = color; p_buf[y * w + x2] = color; }
 }
 
 void CameraVision::run() {
@@ -186,6 +184,8 @@ void CameraVision::run() {
             ESP_LOGW(TAG, "⚠️ Contorno #%d IGNORADO (dimensiones): %dx%d px (>80%% imagen)", i, rect.width, rect.height);
             continue;
         }
+
+        draw_rectangle_rgb565(fb, rect, RECT_COLOR); // Dibuja en el buffer
         
         float distancia = calcularDistancia(static_cast<float>(rect.width));
         
