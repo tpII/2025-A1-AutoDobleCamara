@@ -11,7 +11,7 @@ NC='\033[0m' # No Color
 # Puerto serial (puedes cambiarlo)
 PORT="${1:-/dev/ttyUSB0}"
 
-echo -e "${BLUE}📡 Flasheando ESP32-S3 en puerto ${PORT}...${NC}"
+echo -e "${BLUE}📡 Flasheando ESP32 en puerto ${PORT}...${NC}"
 
 # Desactivar venv local si existe
 if [[ "$VIRTUAL_ENV" != "" ]]; then

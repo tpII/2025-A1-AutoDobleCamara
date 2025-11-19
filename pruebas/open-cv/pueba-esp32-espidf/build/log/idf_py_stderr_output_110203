@@ -1,0 +1,10 @@
+Command: ninja confserver
+Configuration Report               
+ ───────────────────────────────── 
+   Parser Version: 1               
+   Verbosity: default              
+   Defaults policy: sdkconfig      
+   Status: Finished successfully   
+                                   
+ ───────────────────────────────── 
+Server running, waiting for requests on stdin...

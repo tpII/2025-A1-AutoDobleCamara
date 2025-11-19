@@ -1,0 +1,9 @@
+Command: cmake -G Ninja -DPYTHON_DEPS_CHECKED=1 -DPYTHON=/home/taci/.espressif/python_env/idf6.0_py3.12_env/bin/python -DESP_PLATFORM=1 -DSDKCONFIG='/home/taci/unlp/taller-de-proyecto-ii/2025-A1-AutoDobleCamara/pruebas/open-cv/pueba-esp32-espidf/sdkconfig' -DCCACHE_ENABLE=0 /home/taci/unlp/taller-de-proyecto-ii/2025-A1-AutoDobleCamara/pruebas/open-cv/pueba-esp32-espidf
+Configuration Report               
+ ───────────────────────────────── 
+   Parser Version: 1               
+   Verbosity: default              
+   Defaults policy: sdkconfig      
+   Status: Finished successfully   
+                                   
+ ───────────────────────────────── 

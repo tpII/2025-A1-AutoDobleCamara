@@ -10,35 +10,37 @@
 // #define ACCESS_POINT_MODE       // Modo AP: Crea red propia
 #define CONNECT_TO_NETWORK   // Modo STA: Conecta a red existente
 
-// --- PINES DE LA CÁMARA (ESP32-S3) ---
-#define CAM_PIN_PWDN    -1 // No se usa
-#define CAM_PIN_RESET   -1 // No se usa
-#define CAM_PIN_XCLK    -1
-#define CAM_PIN_SDA    4  // SDA
-#define CAM_PIN_SCL    5  // SCL
+// --- PINES DE LA CÁMARA (ESP32-CAM con OV2640) ---
+#define CAM_PIN_PWDN    32 // Power down
+#define CAM_PIN_RESET   -1 // No se usa (conectado a reset general)
+#define CAM_PIN_XCLK    0  // Clock
+#define CAM_PIN_SDA     26 // SIOD (I2C Data)
+#define CAM_PIN_SCL     27 // SIOC (I2C Clock)
 
 // Pines de datos (Bus de 8 bits)
-#define CAM_PIN_D7      16
-#define CAM_PIN_D6      17
-#define CAM_PIN_D5      18
-#define CAM_PIN_D4      12
-#define CAM_PIN_D3      11
-#define CAM_PIN_D2      10
-#define CAM_PIN_D1      9
-#define CAM_PIN_D0      8
+#define CAM_PIN_D7      35
+#define CAM_PIN_D6      34
+#define CAM_PIN_D5      39
+#define CAM_PIN_D4      36
+#define CAM_PIN_D3      21
+#define CAM_PIN_D2      19
+#define CAM_PIN_D1      18
+#define CAM_PIN_D0      5
 
 // Pines de sincronización
-#define CAM_PIN_VSYNC   7
-#define CAM_PIN_HREF    13
-#define CAM_PIN_PCLK    14
+#define CAM_PIN_VSYNC   25
+#define CAM_PIN_HREF    23
+#define CAM_PIN_PCLK    22
 
 // --- PINES DE CONTROL DE MOTORES (L298N) ---
-#define MOTOR_A_IN1    19
-#define MOTOR_A_IN2    20
-#define MOTOR_A_ENA    21
-#define MOTOR_B_IN3    47
-#define MOTOR_B_IN4    48
-#define MOTOR_B_ENB    45
+// IMPORTANTE: En ESP32-CAM, GPIO 1,3,12,13,14,15,16 están limitados
+// GPIO 4 tiene el LED flash, evitar si es posible
+#define MOTOR_A_IN1    2   // GPIO 2 (puede requerir pull-down en boot)
+#define MOTOR_A_IN2    4   // GPIO 4 (LED flash, usar con precaución)
+#define MOTOR_A_ENA    12  // GPIO 12 (pull-down en boot, OK para PWM)
+#define MOTOR_B_IN3    13  // GPIO 13
+#define MOTOR_B_IN4    14  // GPIO 14 
+#define MOTOR_B_ENB    15  // GPIO 15 (pull-up en boot, configurar como output después)
 
 #define MOTOR_PWM_CHANNEL_A 0
 #define MOTOR_PWM_CHANNEL_B 1
@@ -79,8 +81,8 @@
 #endif
 
 #ifdef CONNECT_TO_NETWORK
-    #define WIFI_STA_SSID     "Personal-140-2.4GHz"
-    #define WIFI_STA_PASSWORD "00417225972"
+    #define WIFI_STA_SSID     "alumnosInfo"
+    #define WIFI_STA_PASSWORD "InformaticaUNLP"
     #define WIFI_CONNECT_TIMEOUT 20000  // 20 segundos
 #endif
 
