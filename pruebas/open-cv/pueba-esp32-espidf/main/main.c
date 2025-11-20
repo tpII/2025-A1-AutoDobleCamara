@@ -14,6 +14,9 @@
 #include "camera_driver/camera_driver.h"
 #include "webserver/webserver.h"
 
+// For opencv compatibility
+#undef EPS
+
 static const char *TAG = "Main";
 
 void app_main(void)

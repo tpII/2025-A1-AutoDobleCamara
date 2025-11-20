@@ -8,12 +8,43 @@
 static const char *TAG = "Webserver";
 static httpd_handle_t server = NULL;
 
+// Función auxiliar para convertir RGB565 a JPEG
+static bool rgb565_to_jpeg(camera_fb_t *fb, uint8_t **jpg_buf, size_t *jpg_len, int quality)
+{
+    if (!fb || fb->format != PIXFORMAT_RGB565)
+    {
+        return false;
+    }
+
+    // Allocate temporary buffer for JPEG
+    size_t jpg_buf_len = fb->width * fb->height / 5; // Estimación
+    uint8_t *jpg = (uint8_t *)malloc(jpg_buf_len);
+    if (!jpg)
+    {
+        ESP_LOGE(TAG, "Failed to allocate JPEG buffer");
+        return false;
+    }
+
+    // Convert RGB565 to JPEG using frame2jpg (función del componente esp32-camera)
+    bool converted = frame2jpg(fb, quality, &jpg, jpg_len);
+
+    if (!converted)
+    {
+        free(jpg);
+        ESP_LOGE(TAG, "RGB565 to JPEG conversion failed");
+        return false;
+    }
+
+    *jpg_buf = jpg;
+    return true;
+}
+
 // HTML page with embedded JavaScript for video streaming
 static const char STREAM_HTML[] =
     "<!DOCTYPE html>\n"
     "<html>\n"
     "<head>\n"
-    "    <title>ESP32 Camera Stream</title>\n"
+    "    <title>ESP32 Camera Stream - RGB565</title>\n"
     "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
     "    <style>\n"
     "        body {\n"
@@ -45,6 +76,14 @@ static const char STREAM_HTML[] =
     "            background-color: #282828;\n"
     "            border-radius: 5px;\n"
     "        }\n"
+    "        .badge {\n"
+    "            display: inline-block;\n"
+    "            padding: 5px 10px;\n"
+    "            margin: 5px;\n"
+    "            background-color: #4CAF50;\n"
+    "            border-radius: 3px;\n"
+    "            font-weight: bold;\n"
+    "        }\n"
     "    </style>\n"
     "</head>\n"
     "<body>\n"
@@ -52,7 +91,12 @@ static const char STREAM_HTML[] =
     "        <h1>ESP32-S3 Camera Live Stream</h1>\n"
     "        <img id=\"stream\" src=\"/stream\" alt=\"Camera Stream\">\n"
     "        <div class=\"info\">\n"
-    "            <p>Streaming video from ESP32-S3 with OV2640 camera</p>\n"
+    "            <p>Streaming from ESP32-S3 with OV2640 camera</p>\n"
+    "            <div>\n"
+    "                <span class=\"badge\">Format: RGB565</span>\n"
+    "                <span class=\"badge\">Resolution: VGA (640x480)</span>\n"
+    "                <span class=\"badge\">Converted to JPEG</span>\n"
+    "            </div>\n"
     "        </div>\n"
     "    </div>\n"
     "</body>\n"
@@ -74,15 +118,16 @@ static esp_err_t index_handler(httpd_req_t *req)
 }
 
 /**
- * Handler for MJPEG stream
+ * Handler for MJPEG stream (supports RGB565)
  */
 static esp_err_t stream_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
     esp_err_t res = ESP_OK;
-    size_t _jpg_buf_len = 0;
-    uint8_t *_jpg_buf = NULL;
-    char part_buf[64];
+    size_t jpg_buf_len = 0;
+    uint8_t *jpg_buf = NULL;
+    char part_buf[128];
+    bool needs_free = false;
 
     ESP_LOGI(TAG, "Stream requested");
 
@@ -103,16 +148,32 @@ static esp_err_t stream_handler(httpd_req_t *req)
             break;
         }
 
-        if (fb->format != PIXFORMAT_JPEG)
+        // Handle different pixel formats
+        if (fb->format == PIXFORMAT_JPEG)
         {
-            ESP_LOGE(TAG, "Non-JPEG format not supported");
+            jpg_buf = fb->buf;
+            jpg_buf_len = fb->len;
+            needs_free = false;
+        }
+        else if (fb->format == PIXFORMAT_RGB565)
+        {
+            // Convert RGB565 to JPEG
+            if (!rgb565_to_jpeg(fb, &jpg_buf, &jpg_buf_len, 80))
+            {
+                ESP_LOGE(TAG, "Failed to convert RGB565 to JPEG");
+                camera_fb_return(fb);
+                res = ESP_FAIL;
+                break;
+            }
+            needs_free = true;
+        }
+        else
+        {
+            ESP_LOGE(TAG, "Unsupported pixel format: %d", fb->format);
             camera_fb_return(fb);
             res = ESP_FAIL;
             break;
         }
-
-        _jpg_buf_len = fb->len;
-        _jpg_buf = fb->buf;
 
         // Send boundary
         if (res == ESP_OK)
@@ -123,19 +184,24 @@ static esp_err_t stream_handler(httpd_req_t *req)
         // Send content type and length
         if (res == ESP_OK)
         {
-            size_t hlen = snprintf(part_buf, sizeof(part_buf), _STREAM_PART, _jpg_buf_len);
+            size_t hlen = snprintf(part_buf, sizeof(part_buf), _STREAM_PART, jpg_buf_len);
             res = httpd_resp_send_chunk(req, part_buf, hlen);
         }
 
         // Send image data
         if (res == ESP_OK)
         {
-            res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
+            res = httpd_resp_send_chunk(req, (const char *)jpg_buf, jpg_buf_len);
         }
 
+        // Cleanup
+        if (needs_free && jpg_buf)
+        {
+            free(jpg_buf);
+            jpg_buf = NULL;
+        }
         camera_fb_return(fb);
         fb = NULL;
-        _jpg_buf = NULL;
 
         if (res != ESP_OK)
         {
@@ -148,18 +214,25 @@ static esp_err_t stream_handler(httpd_req_t *req)
     {
         camera_fb_return(fb);
     }
+    if (needs_free && jpg_buf)
+    {
+        free(jpg_buf);
+    }
 
     ESP_LOGI(TAG, "Stream ended");
     return res;
 }
 
 /**
- * Handler for capture single frame
+ * Handler for capture single frame (supports RGB565)
  */
 static esp_err_t capture_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
     esp_err_t res = ESP_OK;
+    uint8_t *jpg_buf = NULL;
+    size_t jpg_buf_len = 0;
+    bool needs_free = false;
 
     fb = camera_capture();
     if (!fb)
@@ -169,10 +242,42 @@ static esp_err_t capture_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
+    // Handle different pixel formats
+    if (fb->format == PIXFORMAT_JPEG)
+    {
+        jpg_buf = fb->buf;
+        jpg_buf_len = fb->len;
+        needs_free = false;
+    }
+    else if (fb->format == PIXFORMAT_RGB565)
+    {
+        // Convert RGB565 to JPEG
+        if (!rgb565_to_jpeg(fb, &jpg_buf, &jpg_buf_len, 90))
+        {
+            ESP_LOGE(TAG, "Failed to convert RGB565 to JPEG");
+            camera_fb_return(fb);
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+        needs_free = true;
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Unsupported pixel format for capture");
+        camera_fb_return(fb);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
     httpd_resp_set_type(req, "image/jpeg");
     httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+    res = httpd_resp_send(req, (const char *)jpg_buf, jpg_buf_len);
 
-    res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
+    // Cleanup
+    if (needs_free && jpg_buf)
+    {
+        free(jpg_buf);
+    }
     camera_fb_return(fb);
 
     return res;

@@ -176,3 +176,6 @@
 /home/taci/unlp/taller-de-proyecto-ii/2025-A1-AutoDobleCamara/pruebas/open-cv/pueba-esp32-espidf/build/esp-idf/espressif__esp_jpeg/libespressif__esp_jpeg.a
 /home/taci/unlp/taller-de-proyecto-ii/2025-A1-AutoDobleCamara/pruebas/open-cv/pueba-esp32-espidf/build/esp-idf/main/libmain.a
 /home/taci/unlp/taller-de-proyecto-ii/2025-A1-AutoDobleCamara/pruebas/open-cv/pueba-esp32-espidf/build/esp-idf/espressif__esp32-camera/libespressif__esp32-camera.a
+/home/taci/unlp/taller-de-proyecto-ii/2025-A1-AutoDobleCamara/pruebas/open-cv/pueba-esp32-espidf/main/opencv/libopencv_imgcodecs.a
+/home/taci/unlp/taller-de-proyecto-ii/2025-A1-AutoDobleCamara/pruebas/open-cv/pueba-esp32-espidf/main/opencv/libopencv_imgproc.a
+/home/taci/unlp/taller-de-proyecto-ii/2025-A1-AutoDobleCamara/pruebas/open-cv/pueba-esp32-espidf/main/opencv/libopencv_core.a

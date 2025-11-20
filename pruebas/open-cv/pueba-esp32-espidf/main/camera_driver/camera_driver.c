@@ -27,15 +27,15 @@ esp_err_t camera_init(void)
 
         // XCLK configuración para módulos con oscilador
         // Si tu módulo tiene oscilador, el pin XCLK no se usa pero la frecuencia debe especificarse
-        .xclk_freq_hz = 10000000, // 10MHz - frecuencia típica del oscilador interno
+        .xclk_freq_hz = 5000000, // 10MHz - frecuencia típica del oscilador interno
         .ledc_timer = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
 
-        .pixel_format = PIXFORMAT_JPEG, // YUV422, GRAYSCALE, RGB565, JPEG
-        .frame_size = FRAMESIZE_FHD,    // Reducir a VGA para debug (era SVGA)
+        .pixel_format = PIXFORMAT_RGB565, // YUV422, GRAYSCALE, RGB565, JPEG
+        .frame_size = FRAMESIZE_HVGA,     // Reducir a VGA para debug (era SVGA)
 
         .jpeg_quality = 12, // 0-63, for OV series camera sensors, lower number means higher quality
-        .fb_count = 2,      // When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode.
+        .fb_count = 1,      // When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode.
         .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
         .fb_location = CAMERA_FB_IN_PSRAM};
 
