@@ -13,6 +13,10 @@
 #include "wifi/wifi.h"
 #include "camera_driver/camera_driver.h"
 #include "webserver/webserver.h"
+#include "test_detection.h"
+
+// Configuración de prueba - cambiar a 1 para habilitar test de detección
+#define ENABLE_DETECTION_TEST 0
 
 // For opencv compatibility
 #undef EPS
@@ -64,6 +68,14 @@ void app_main(void)
     ESP_LOGI(TAG, "=== System ready! ===");
     ESP_LOGI(TAG, "Stream URL: http://%s/stream", ip_address);
     ESP_LOGI(TAG, "Capture URL: http://%s/capture", ip_address);
+    ESP_LOGI(TAG, "Detection API: http://%s/detection", ip_address);
+
+#if ENABLE_DETECTION_TEST
+    // Ejecutar test de detección una vez
+    ESP_LOGI(TAG, "Ejecutando test de detección...");
+    vTaskDelay(pdMS_TO_TICKS(2000)); // Esperar 2s para estabilidad
+    test_object_detection();
+#endif
 
     // Keep the application running
     while (1)

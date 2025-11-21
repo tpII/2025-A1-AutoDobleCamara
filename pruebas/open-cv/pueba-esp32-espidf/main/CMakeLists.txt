@@ -4,6 +4,8 @@ idf_component_register(
         "wifi/wifi.c"
         "camera_driver/camera_driver.c"
         "webserver/webserver.c"
+        "vision/vision.c"
+        "test_detection.c"
     PRIV_REQUIRES 
         esp_wifi
         nvs_flash

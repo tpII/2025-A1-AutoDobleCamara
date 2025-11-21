@@ -1,5 +1,6 @@
 #include "webserver.h"
 #include "../camera_driver/camera_driver.h"
+#include "../vision/vision.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_camera.h"
@@ -7,6 +8,9 @@
 
 static const char *TAG = "Webserver";
 static httpd_handle_t server = NULL;
+
+// Variable global para configurar qué color detectar
+static const color_range_t *current_color_range = &COLOR_GREEN; // Por defecto verde
 
 // Función auxiliar para convertir RGB565 a JPEG
 static bool rgb565_to_jpeg(camera_fb_t *fb, uint8_t **jpg_buf, size_t *jpg_len, int quality)
@@ -118,7 +122,7 @@ static esp_err_t index_handler(httpd_req_t *req)
 }
 
 /**
- * Handler for MJPEG stream (supports RGB565)
+ * Handler for MJPEG stream (supports RGB565 con detección de objetos)
  */
 static esp_err_t stream_handler(httpd_req_t *req)
 {
@@ -128,6 +132,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
     uint8_t *jpg_buf = NULL;
     char part_buf[128];
     bool needs_free = false;
+    detection_result_t detection;
 
     ESP_LOGI(TAG, "Stream requested");
 
@@ -146,6 +151,19 @@ static esp_err_t stream_handler(httpd_req_t *req)
             ESP_LOGE(TAG, "Camera capture failed");
             res = ESP_FAIL;
             break;
+        }
+
+        // Realizar detección si el formato es RGB565
+        if (fb->format == PIXFORMAT_RGB565)
+        {
+            detect_object_by_color((uint16_t *)fb->buf, fb->width, fb->height,
+                                   current_color_range, &detection);
+
+            if (detection.detected)
+            {
+                ESP_LOGI(TAG, "Object detected! Centroid: (%d, %d), Pixels: %lu",
+                         detection.centroid_x, detection.centroid_y, detection.pixel_count);
+            }
         }
 
         // Handle different pixel formats
@@ -283,6 +301,49 @@ static esp_err_t capture_handler(httpd_req_t *req)
     return res;
 }
 
+/**
+ * Handler para obtener datos de detección en formato JSON
+ */
+static esp_err_t detection_handler(httpd_req_t *req)
+{
+    camera_fb_t *fb = NULL;
+    detection_result_t detection;
+    char json_response[200];
+
+    fb = camera_capture();
+    if (!fb)
+    {
+        ESP_LOGE(TAG, "Camera capture failed");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    // Realizar detección solo en RGB565
+    if (fb->format == PIXFORMAT_RGB565)
+    {
+        detect_object_by_color((uint16_t *)fb->buf, fb->width, fb->height,
+                               current_color_range, &detection);
+    }
+    else
+    {
+        detection.detected = false;
+    }
+
+    camera_fb_return(fb);
+
+    // Crear respuesta JSON
+    snprintf(json_response, sizeof(json_response),
+             "{\"detected\":%s,\"x\":%d,\"y\":%d,\"pixels\":%lu}",
+             detection.detected ? "true" : "false",
+             detection.centroid_x,
+             detection.centroid_y,
+             detection.pixel_count);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, json_response, HTTPD_RESP_USE_STRLEN);
+}
+
 esp_err_t webserver_start(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -314,12 +375,20 @@ esp_err_t webserver_start(void)
         .handler = capture_handler,
         .user_ctx = NULL};
 
+    // URI handler for detection data
+    httpd_uri_t detection_uri = {
+        .uri = "/detection",
+        .method = HTTP_GET,
+        .handler = detection_handler,
+        .user_ctx = NULL};
+
     ESP_LOGI(TAG, "Starting web server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK)
     {
         httpd_register_uri_handler(server, &index_uri);
         httpd_register_uri_handler(server, &stream_uri);
         httpd_register_uri_handler(server, &capture_uri);
+        httpd_register_uri_handler(server, &detection_uri);
         ESP_LOGI(TAG, "Web server started successfully");
         return ESP_OK;
     }
