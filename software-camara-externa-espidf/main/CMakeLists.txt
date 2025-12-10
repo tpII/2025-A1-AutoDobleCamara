@@ -1,0 +1,24 @@
+idf_component_register(
+    SRCS 
+        "main_softap.c"
+        "camera_driver/camera_driver.c"
+        "webserver/webserver.c"
+        "vision/vision.c"
+        "vision/homography.cpp"
+        "softap/softap.c"
+        "ws_server/ws_server.c"
+        "vision_task/vision_task.c"
+       
+       
+    PRIV_REQUIRES 
+        esp_wifi
+        nvs_flash
+        esp_http_server
+        esp_netif
+        esp_event
+        esp_timer
+        espressif__esp32-camera
+        json
+    INCLUDE_DIRS 
+        "."
+)
